@@ -1,0 +1,4 @@
+Requirements
+------------
+    * yfinance
+    * tabulate
