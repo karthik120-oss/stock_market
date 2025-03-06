@@ -37,55 +37,59 @@ def analyze_volume_trend(stock_data, use_today=True):
     analysis_data = stock_data if use_today else stock_data[:-1]
     last_30_days_data = analysis_data[-30:].copy()
     
-    # Calculate volume EMA with shorter periods for more responsive signals
-    volume_ema_short = last_30_days_data['Volume'].ewm(span=VOLUME_EMA_SHORT, adjust=False).mean()
-    volume_ema_long = last_30_days_data['Volume'].ewm(span=VOLUME_EMA_LONG, adjust=False).mean()
+    # Calculate Chaikin Money Flow Multiplier
+    high_low = last_30_days_data['High'] - last_30_days_data['Low']
+    close_low = last_30_days_data['Close'] - last_30_days_data['Low']
+    high_close = last_30_days_data['High'] - last_30_days_data['Close']
+    
+    # Avoid division by zero
+    high_low = high_low.replace(0, 1e-5)
+    
+    multiplier = ((2 * close_low) - high_close) / high_low
+    
+    # Calculate Money Flow Volume
+    money_flow_volume = multiplier * last_30_days_data['Volume']
+    
+    # Calculate Chaikin Oscillator (difference between 5-day and 20-day EMA of Money Flow Volume)
+    ema_short = money_flow_volume.ewm(span=VOLUME_EMA_SHORT, adjust=False).mean()
+    ema_long = money_flow_volume.ewm(span=VOLUME_EMA_LONG, adjust=False).mean()
+    chaikin_oscillator = ema_short - ema_long
     
     volume_trend = {
         "Volume Trend": "N/A",
         "Price Trend": "N/A",
-        "Volume EMA Signal": "N/A",
+        "Chaikin Signal": "N/A",
         "Analysis": "N/A"
     }
 
     if len(last_30_days_data) >= 2:
-        # Calculate average volume and price for first 15 days and last 15 days
-        first_half_volume = last_30_days_data['Volume'].iloc[:15].mean().item()
-        second_half_volume = last_30_days_data['Volume'].iloc[15:].mean().item()
+        current_chaikin = chaikin_oscillator.iloc[-1].item()
+        prev_chaikin = chaikin_oscillator.iloc[-2].item()
+        
+        # Determine price trend
         first_half_price = last_30_days_data['Close'].iloc[:15].mean().item()
         second_half_price = last_30_days_data['Close'].iloc[15:].mean().item()
-
-        # Check volume EMA crossover
-        current_short_ema = volume_ema_short.iloc[-1].item()
-        current_long_ema = volume_ema_long.iloc[-1].item()
-        prev_short_ema = volume_ema_short.iloc[-2].item()
-        prev_long_ema = volume_ema_long.iloc[-2].item()
-
-        volume_trend["Volume Trend"] = "Increases" if second_half_volume > first_half_volume else "Decreases"
         volume_trend["Price Trend"] = "Increases" if second_half_price > first_half_price else "Decreases"
         
-        # Determine EMA signal using scalar values
-        if current_short_ema > current_long_ema and prev_short_ema <= prev_long_ema:
-            volume_trend["Volume EMA Signal"] = "Bullish Crossover"
-        elif current_short_ema < current_long_ema and prev_short_ema >= prev_long_ema:
-            volume_trend["Volume EMA Signal"] = "Bearish Crossover"
+        # Determine Chaikin signal
+        if current_chaikin > 0 and prev_chaikin <= 0:
+            volume_trend["Chaikin Signal"] = "Bullish Crossover"
+        elif current_chaikin < 0 and prev_chaikin >= 0:
+            volume_trend["Chaikin Signal"] = "Bearish Crossover"
         else:
-            volume_trend["Volume EMA Signal"] = "No Crossover"
+            volume_trend["Chaikin Signal"] = "No Crossover"
 
-        # Enhanced analysis incorporating EMA signals
-        if (volume_trend["Volume Trend"] == "Increases" and 
-            volume_trend["Price Trend"] == "Increases" and 
-            volume_trend["Volume EMA Signal"] in ["Bullish Crossover", "No Crossover"]):
+        # Volume trend based on Chaikin Oscillator value
+        volume_trend["Volume Trend"] = "Increases" if current_chaikin > 0 else "Decreases"
+
+        # Enhanced analysis incorporating Chaikin Oscillator
+        if current_chaikin > 0 and volume_trend["Price Trend"] == "Increases":
             volume_trend["Analysis"] = "Strong Bullish"
-        elif (volume_trend["Volume Trend"] == "Increases" and 
-              volume_trend["Price Trend"] == "Decreases"):
-            volume_trend["Analysis"] = "Caution – weak hands buying"
-        elif (volume_trend["Volume Trend"] == "Decreases" and 
-              volume_trend["Price Trend"] == "Increases"):
-            volume_trend["Analysis"] = "Bearish"
-        elif (volume_trend["Volume Trend"] == "Decreases" and 
-              volume_trend["Price Trend"] == "Decreases" and 
-              volume_trend["Volume EMA Signal"] in ["Bearish Crossover", "No Crossover"]):
+        elif current_chaikin > 0 and volume_trend["Price Trend"] == "Decreases":
+            volume_trend["Analysis"] = "Potential Reversal - High Volume but Declining Price"
+        elif current_chaikin < 0 and volume_trend["Price Trend"] == "Increases":
+            volume_trend["Analysis"] = "Weak Bullish"
+        elif current_chaikin < 0 and volume_trend["Price Trend"] == "Decreases":
             volume_trend["Analysis"] = "Strong Bearish"
         else:
             volume_trend["Analysis"] = "Neutral"
