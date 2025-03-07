@@ -199,18 +199,27 @@ def get_stock_recommendation(stock_symbol):
         # Check for 5-day uptrend
         five_day_uptrend = check_five_day_uptrend(stock_data)
 
-        # Determine buy or sell recommendation using last closing price
+        # Enhanced recommendation logic with more specific conditions
         recommendation = None
-        if last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] == "Bearish":
+        if last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
             recommendation = "SELL"
-        elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0 and volume_trend["Analysis"] == "Bullish":
-            recommendation = "BUY"
-            if five_day_uptrend:
-                recommendation += " (Strong Buy - 5 Day Uptrend)"
-        elif five_day_uptrend:
-            recommendation = "WATCH (Uptrend Present - Monitor for Buy Signal)"
+        elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
+            if volume_trend["Analysis"] == "Strong Bullish":
+                recommendation = "STRONG BUY"
+            elif volume_trend["Analysis"] == "Weak Bullish":
+                if five_day_uptrend:
+                    recommendation = "BUY (Weak Volume but Price Uptrend)"
+                else:
+                    recommendation = "ACCUMULATE (Weak Volume Signal)"
+        elif last_close > moving_avg_30 and rsi > 30 and macd > 0 and volume_trend["Analysis"] == "Weak Bullish":
+            recommendation = "WATCH (Price Above MA with Weak Volume)"
+        elif five_day_uptrend and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
+            recommendation = "ACCUMULATE (Uptrend with Volume Support)"
         else:
-            recommendation = "HOLD (No Clear Trend)"
+            if last_close > moving_avg_30 and rsi > 45:
+                recommendation = "HOLD (Above MA - Monitor for Strength)"
+            else:
+                recommendation = "HOLD (Wait for Clear Signals)"
 
         if recommendation is None:
             recommendation = "HOLD (Lack of clear trend indicators)"
