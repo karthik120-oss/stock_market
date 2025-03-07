@@ -35,7 +35,12 @@ def analyze_volume_trend(stock_data, use_today=True):
     
     # Use either latest data or previous day's data
     analysis_data = stock_data if use_today else stock_data[:-1]
-    last_30_days_data = analysis_data[-30:].copy()
+    
+    # Get full 30 days of data for analysis
+    last_30_days_data = analysis_data[-30:].copy()  # Ensure we get exactly 30 days
+    
+    if len(last_30_days_data) < 30:
+        logging.warning(f"Less than 30 days of data available. Using {len(last_30_days_data)} days.")
     
     # Calculate Chaikin Money Flow Multiplier
     high_low = last_30_days_data['High'] - last_30_days_data['Low']
@@ -50,9 +55,9 @@ def analyze_volume_trend(stock_data, use_today=True):
     # Calculate Money Flow Volume
     money_flow_volume = multiplier * last_30_days_data['Volume']
     
-    # Calculate Chaikin Oscillator (difference between 5-day and 20-day EMA of Money Flow Volume)
-    ema_short = money_flow_volume.ewm(span=VOLUME_EMA_SHORT, adjust=False).mean()
-    ema_long = money_flow_volume.ewm(span=VOLUME_EMA_LONG, adjust=False).mean()
+    # Calculate Chaikin Oscillator using full 30 days
+    ema_short = money_flow_volume.ewm(span=5, adjust=False).mean()
+    ema_long = money_flow_volume.ewm(span=20, adjust=False).mean()
     chaikin_oscillator = ema_short - ema_long
     
     volume_trend = {
@@ -66,7 +71,7 @@ def analyze_volume_trend(stock_data, use_today=True):
         current_chaikin = chaikin_oscillator.iloc[-1].item()
         prev_chaikin = chaikin_oscillator.iloc[-2].item()
         
-        # Determine price trend
+        # Determine price trend using full 30-day period
         first_half_price = last_30_days_data['Close'].iloc[:15].mean().item()
         second_half_price = last_30_days_data['Close'].iloc[15:].mean().item()
         volume_trend["Price Trend"] = "Increases" if second_half_price > first_half_price else "Decreases"
@@ -127,10 +132,22 @@ def get_stock_recommendation(stock_symbol):
         # Filter out weekends
         stock_data = stock_data[stock_data.index.dayofweek < 5]
 
+        # Log the latest available date
+        latest_date = stock_data.index[-1].strftime('%Y-%m-%d')
+        today = date.today().strftime('%Y-%m-%d')
+        logging.info(f"Stock: {stock_symbol}")
+        logging.info(f"Latest data date: {latest_date}")
+        logging.info(f"Current date: {today}")
+
+        # Check if data is stale (more than 5 days old)
+        if (date.today() - stock_data.index[-1].date()).days > 5:
+            logging.warning(f"Warning: Data for {stock_symbol} might be stale. Latest data is from {latest_date}")
+
         # Check if today's data is available and get latest date
         use_today = is_today_data_available(stock_data)
-        latest_date = get_latest_trading_date(stock_data)
-        
+        if not use_today:
+            logging.info(f"Today's data not yet available for {stock_symbol}, using previous day's data")
+
         if use_today:
             last_close = stock_data['Close'].iloc[-1].item()
             previous_close = stock_data['Close'].iloc[-2].item()
