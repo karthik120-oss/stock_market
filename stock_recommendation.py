@@ -135,9 +135,9 @@ def get_stock_recommendation(stock_symbol):
         # Log the latest available date
         latest_date = stock_data.index[-1].strftime('%Y-%m-%d')
         today = date.today().strftime('%Y-%m-%d')
-        logging.info(f"Stock: {stock_symbol}")
-        logging.info(f"Latest data date: {latest_date}")
-        logging.info(f"Current date: {today}")
+        # logging.info(f"Stock: {stock_symbol}")
+        # logging.info(f"Latest data date: {latest_date}")
+        # logging.info(f"Current date: {today}")
 
         # Check if data is stale (more than 5 days old)
         if (date.today() - stock_data.index[-1].date()).days > 5:
@@ -145,8 +145,9 @@ def get_stock_recommendation(stock_symbol):
 
         # Check if today's data is available and get latest date
         use_today = is_today_data_available(stock_data)
-        if not use_today:
-            logging.info(f"Today's data not yet available for {stock_symbol}, using previous day's data")
+        
+        # if not use_today:
+        #    logging.info(f"Today's data not yet available for {stock_symbol}, using previous day's data")
 
         if use_today:
             last_close = stock_data['Close'].iloc[-1].item()
