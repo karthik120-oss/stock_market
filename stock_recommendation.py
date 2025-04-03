@@ -270,9 +270,15 @@ def track_stocks(stock_file):
     # Create a DataFrame for better readability
     recommendations_df = pd.DataFrame(recommendations)
     
+    # Create Signal Alert column
+    recommendations_df['Signal Alert'] = recommendations_df.apply(
+        lambda x: x['Company'] if any(signal in x['Recommendation'] 
+        for signal in ['BUY', 'SELL']) else '', axis=1)
+    
     # Reorder columns to show only needed columns
     recommendations_df = recommendations_df[['Company', 'Last Close', '30-Day Moving Average', 
-                                          'RSI', 'MACD', 'Volume Analysis', 'Recommendation']]
+                                          'RSI', 'MACD', 'Volume Analysis', 'Recommendation',
+                                          'Signal Alert']]
     
     # Add a serial number column starting from 1
     recommendations_df.index = recommendations_df.index + 1
