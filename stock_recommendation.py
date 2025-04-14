@@ -129,6 +129,10 @@ def get_stock_recommendation(stock_symbol):
         # Fetch historical stock data from Yahoo Finance
         stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
 
+        # Fetch the current price using yfinance.Ticker
+        ticker = yf.Ticker(stock_symbol)
+        current_price = ticker.info.get("regularMarketPrice", float('nan'))  # Get current price or NaN if unavailable
+
         # Filter out weekends
         stock_data = stock_data[stock_data.index.dayofweek < 5]
 
@@ -143,18 +147,16 @@ def get_stock_recommendation(stock_symbol):
         if (date.today() - stock_data.index[-1].date()).days > 5:
             logging.warning(f"Warning: Data for {stock_symbol} might be stale. Latest data is from {latest_date}")
 
-        # Check if today's data is available and get latest date
+        # Check if today's data is available
         use_today = is_today_data_available(stock_data)
-        
-        # if not use_today:
-        #    logging.info(f"Today's data not yet available for {stock_symbol}, using previous day's data")
 
+        # Determine last_close and previous_close based on data availability
         if use_today:
-            last_close = stock_data['Close'].iloc[-1].item()
-            previous_close = stock_data['Close'].iloc[-2].item()
+            last_close = stock_data['Close'].iloc[-1].item()  # Use today's close price
+            previous_close = stock_data['Close'].iloc[-2].item()  # Use yesterday's close price
         else:
-            last_close = stock_data['Close'].iloc[-2].item()
-            previous_close = stock_data['Close'].iloc[-3].item()
+            last_close = stock_data['Close'].iloc[-2].item()  # Use yesterday's close price
+            previous_close = stock_data['Close'].iloc[-3].item()  # Use day before yesterday's close price
 
         # Create a proper copy of the data to avoid SettingWithCopyWarning
         analysis_data = stock_data.copy() if use_today else stock_data[:-1].copy()
@@ -177,14 +179,7 @@ def get_stock_recommendation(stock_symbol):
         volume_trend = analyze_volume_trend(stock_data, use_today)
 
         # Get price data based on availability
-        if use_today:
-            last_close = stock_data['Close'].iloc[-1].item()
-            previous_close = stock_data['Close'].iloc[-2].item()
-            today_open = stock_data['Open'].iloc[-1].item()
-        else:
-            last_close = stock_data['Close'].iloc[-2].item()
-            previous_close = stock_data['Close'].iloc[-3].item()
-            today_open = None
+        today_open = stock_data['Open'].iloc[-1].item() if use_today else None
 
         # Use all data including today for calculations
         last_30_days_data = stock_data[-30:].copy()
@@ -227,7 +222,8 @@ def get_stock_recommendation(stock_symbol):
 
         return {
             "Stock": stock_symbol,
-            "Last Close": last_close,
+            "Current Price": current_price,  # Include the current price
+            "Last Close": last_close,  # Always use the correct last_close value
             "Previous Close": previous_close,
             "Today Open": today_open,
             "30-Day Moving Average": moving_avg_30,
@@ -244,6 +240,7 @@ def get_stock_recommendation(stock_symbol):
         traceback.print_exc()
         return {
             "Stock": stock_symbol,
+            "Current Price": float('nan'),
             "Last Close": float('nan'),
             "Previous Close": float('nan'),
             "Today Open": float('nan'),
@@ -276,7 +273,7 @@ def track_stocks(stock_file):
         for signal in ['BUY', 'SELL']) else '', axis=1)
     
     # Reorder columns to show only needed columns
-    recommendations_df = recommendations_df[['Company', 'Last Close', '30-Day Moving Average', 
+    recommendations_df = recommendations_df[['Company', 'Current Price', '30-Day Moving Average', 
                                           'RSI', 'MACD', 'Volume Analysis', 'Recommendation',
                                           'Signal Alert']]
     
