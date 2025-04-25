@@ -129,9 +129,8 @@ def get_stock_recommendation(stock_symbol):
         # Fetch historical stock data from Yahoo Finance
         stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
 
-        # Fetch the current price using yfinance.Ticker
-        ticker = yf.Ticker(stock_symbol)
-        current_price = ticker.info.get("regularMarketPrice", float('nan'))  # Get current price or NaN if unavailable
+        # Use the last close price instead
+        current_price = stock_data['Close'].iloc[-1].item()  # Use the last close price
 
         # Filter out weekends
         stock_data = stock_data[stock_data.index.dayofweek < 5]
@@ -222,7 +221,7 @@ def get_stock_recommendation(stock_symbol):
 
         return {
             "Stock": stock_symbol,
-            "Current Price": current_price,  # Include the current price
+            "Current Price": current_price,  # Updated to use the close price
             "Last Close": last_close,  # Always use the correct last_close value
             "Previous Close": previous_close,
             "Today Open": today_open,
