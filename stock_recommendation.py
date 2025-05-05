@@ -7,9 +7,9 @@ import traceback
 import logging
 
 # Constants for EMA periods
-VOLUME_EMA_SHORT = 5   # Changed back to 5 days for more responsive volume signals
-VOLUME_EMA_LONG = 20   # Changed back to 20 days for volume trend
-PRICE_EMA = 30        # Keep 30 days for price trend
+VOLUME_EMA_SHORT = 25   # Changed back to 5 days for more responsive volume signals
+VOLUME_EMA_LONG = 50   # Changed back to 20 days for volume trend
+PRICE_EMA = 60        # Keep 30 days for price trend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
