@@ -7,8 +7,8 @@ import traceback
 import logging
 
 # Constants for EMA periods
-VOLUME_EMA_SHORT = 9   # Changed to 9 days for more responsive volume signals
-VOLUME_EMA_LONG = 21   # Changed to 21 days for volume trend
+VOLUME_EMA_SHORT = 9   # Changed back to 9 days for more responsive volume signals
+VOLUME_EMA_LONG = 21   # Changed back to 21 days for volume trend
 PRICE_EMA = 30        # Keep 30 days for price trend
 
 # Configure logging
@@ -55,9 +55,9 @@ def analyze_volume_trend(stock_data, use_today=True):
     # Calculate Money Flow Volume
     money_flow_volume = multiplier * last_30_days_data['Volume']
     
-    # Calculate Chaikin Oscillator using updated EMA periods
-    ema_short = money_flow_volume.ewm(span=VOLUME_EMA_SHORT, adjust=False).mean()
-    ema_long = money_flow_volume.ewm(span=VOLUME_EMA_LONG, adjust=False).mean()
+    # Calculate Chaikin Oscillator using full 30 days
+    ema_short = money_flow_volume.ewm(span=5, adjust=False).mean()
+    ema_long = money_flow_volume.ewm(span=20, adjust=False).mean()
     chaikin_oscillator = ema_short - ema_long
     
     volume_trend = {
@@ -126,6 +126,9 @@ def calculate_bollinger_bands(stock_data, window=20, num_std_dev=2):
 # Function to get 30-day moving average, RSI, MACD, Bollinger Bands, and current price, then make buy/sell recommendation
 def get_stock_recommendation(stock_symbol):
     try:
+        # Initialize recommendation to None
+        recommendation = None
+
         # Fetch historical stock data from Yahoo Finance
         stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
 
@@ -191,30 +194,44 @@ def get_stock_recommendation(stock_symbol):
         upper_band = stock_data['Upper Band'].iloc[-1].item()
         lower_band = stock_data['Lower Band'].iloc[-1].item()
 
+        # Calculate short-term and long-term EMAs for volume
+        stock_data['VOLUME_EMA_SHORT'] = stock_data['Volume'].ewm(span=5, adjust=False).mean()
+        stock_data['VOLUME_EMA_LONG'] = stock_data['Volume'].ewm(span=20, adjust=False).mean()
+
+        # Check for BUY signal based on EMA crossover
+        if stock_data['VOLUME_EMA_SHORT'].iloc[-1] > stock_data['VOLUME_EMA_LONG'].iloc[-1] and \
+           stock_data['VOLUME_EMA_SHORT'].iloc[-2] <= stock_data['VOLUME_EMA_LONG'].iloc[-2]:
+            recommendation = "BUY (Volume EMA Crossover)"
+
+        # Check for SELL signal based on EMA crossover
+        if stock_data['VOLUME_EMA_SHORT'].iloc[-1] < stock_data['VOLUME_EMA_LONG'].iloc[-1] and \
+           stock_data['VOLUME_EMA_SHORT'].iloc[-2] >= stock_data['VOLUME_EMA_LONG'].iloc[-2]:
+            recommendation = "SELL (Volume EMA Crossover)"
+
         # Check for 5-day uptrend
         five_day_uptrend = check_five_day_uptrend(stock_data)
 
         # Enhanced recommendation logic with more specific conditions
-        recommendation = None
-        if last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
-            recommendation = "SELL"
-        elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
-            if volume_trend["Analysis"] == "Strong Bullish":
-                recommendation = "STRONG BUY"
-            elif volume_trend["Analysis"] == "Weak Bullish":
-                if five_day_uptrend:
-                    recommendation = "BUY (Weak Volume but Price Uptrend)"
-                else:
-                    recommendation = "ACCUMULATE (Weak Volume Signal)"
-        elif last_close > moving_avg_30 and rsi > 30 and macd > 0 and volume_trend["Analysis"] == "Weak Bullish":
-            recommendation = "WATCH (Price Above MA with Weak Volume)"
-        elif five_day_uptrend and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
-            recommendation = "ACCUMULATE (Uptrend with Volume Support)"
-        else:
-            if last_close > moving_avg_30 and rsi > 45:
-                recommendation = "HOLD (Above MA - Monitor for Strength)"
+        if recommendation is None:
+            if last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
+                recommendation = "SELL"
+            elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
+                if volume_trend["Analysis"] == "Strong Bullish":
+                    recommendation = "STRONG BUY"
+                elif volume_trend["Analysis"] == "Weak Bullish":
+                    if five_day_uptrend:
+                        recommendation = "BUY (Weak Volume but Price Uptrend)"
+                    else:
+                        recommendation = "ACCUMULATE (Weak Volume Signal)"
+            elif last_close > moving_avg_30 and rsi > 30 and macd > 0 and volume_trend["Analysis"] == "Weak Bullish":
+                recommendation = "WATCH (Price Above MA with Weak Volume)"
+            elif five_day_uptrend and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
+                recommendation = "ACCUMULATE (Uptrend with Volume Support)"
             else:
-                recommendation = "HOLD (Wait for Clear Signals)"
+                if last_close > moving_avg_30 and rsi > 45:
+                    recommendation = "HOLD (Above MA - Monitor for Strength)"
+                else:
+                    recommendation = "HOLD (Wait for Clear Signals)"
 
         if recommendation is None:
             recommendation = "HOLD (Lack of clear trend indicators)"
