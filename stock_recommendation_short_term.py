@@ -6,11 +6,6 @@ from datetime import date, timedelta
 import traceback
 import logging
 
-# Constants for EMA periods
-VOLUME_EMA_SHORT = 9   # Changed back to 9 days for more responsive volume signals
-VOLUME_EMA_LONG = 21   # Changed back to 21 days for volume trend
-PRICE_EMA = 30        # Keep 30 days for price trend
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -132,6 +127,37 @@ def get_stock_recommendation(stock_symbol):
         # Fetch historical stock data from Yahoo Finance
         stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
 
+        # Flatten multi-level column names if present
+        if isinstance(stock_data.columns, pd.MultiIndex):
+            stock_data.columns = [col[0] for col in stock_data.columns]
+
+        # Log the flattened column names for debugging
+        #logging.info(f"Flattened stock data columns for {stock_symbol}: {stock_data.columns.tolist()}")
+
+        # Log the structure of the stock_data DataFrame for debugging
+        #logging.info(f"Stock data columns for {stock_symbol}: {stock_data.columns.tolist()}")
+        # logging.info(f"Stock data sample for {stock_symbol}:\n{stock_data.head()}")
+
+        # Ensure required columns are present in the stock_data DataFrame
+        required_columns = ['Open', 'Close', 'High', 'Low', 'Volume']
+        for column in required_columns:
+            if column not in stock_data.columns:
+                logging.error(f"Missing required column '{column}' in stock data for {stock_symbol}")
+                return {
+                    "Stock": stock_symbol,
+                    "Current Price": float('nan'),
+                    "Last Close": float('nan'),
+                    "Previous Close": float('nan'),
+                    "Today Open": float('nan'),
+                    "30-Day Moving Average": float('nan'),
+                    "RSI": float('nan'),
+                    "MACD": float('nan'),
+                    "Upper Bollinger Band": float('nan'),
+                    "Lower Bollinger Band": float('nan'),
+                    "Volume Analysis": "N/A",
+                    "Recommendation": "HOLD (Missing Data)"
+                }
+
         # Use the last close price instead
         current_price = stock_data['Close'].iloc[-1].item()  # Use the last close price
 
@@ -194,26 +220,91 @@ def get_stock_recommendation(stock_symbol):
         upper_band = stock_data['Upper Band'].iloc[-1].item()
         lower_band = stock_data['Lower Band'].iloc[-1].item()
 
-        # Calculate short-term and long-term EMAs for volume
-        stock_data['VOLUME_EMA_SHORT'] = stock_data['Volume'].ewm(span=5, adjust=False).mean()
-        stock_data['VOLUME_EMA_LONG'] = stock_data['Volume'].ewm(span=20, adjust=False).mean()
-
-        # Check for BUY signal based on EMA crossover
-        if stock_data['VOLUME_EMA_SHORT'].iloc[-1] > stock_data['VOLUME_EMA_LONG'].iloc[-1] and \
-           stock_data['VOLUME_EMA_SHORT'].iloc[-2] <= stock_data['VOLUME_EMA_LONG'].iloc[-2]:
-            recommendation = "BUY (Volume EMA Crossover)"
-
-        # Check for SELL signal based on EMA crossover
-        if stock_data['VOLUME_EMA_SHORT'].iloc[-1] < stock_data['VOLUME_EMA_LONG'].iloc[-1] and \
-           stock_data['VOLUME_EMA_SHORT'].iloc[-2] >= stock_data['VOLUME_EMA_LONG'].iloc[-2]:
-            recommendation = "SELL (Volume EMA Crossover)"
-
         # Check for 5-day uptrend
         five_day_uptrend = check_five_day_uptrend(stock_data)
 
-        # Enhanced recommendation logic with more specific conditions
+        # Function to analyze candlestick patterns
+        def analyze_candlestick_patterns(stock_data):
+            """
+            Analyze the last two candlesticks for patterns like Bearish Engulfing or Bullish Engulfing.
+            Returns "Bearish Engulfing", "Bullish Engulfing", or None.
+            """
+            if len(stock_data) < 2:
+                return None
+
+            # Ensure prev_candle and last_candle are extracted as single rows
+            last_candle = stock_data.iloc[-1]
+            prev_candle = stock_data.iloc[-2]
+
+            # Convert to dictionaries to avoid Series ambiguity
+            last_candle = last_candle.to_dict()
+            prev_candle = prev_candle.to_dict()
+
+            # Bearish Engulfing Pattern
+            if (
+                prev_candle['Close'] > prev_candle['Open'] and  # Previous candle is bullish
+                last_candle['Open'] > last_candle['Close'] and  # Last candle is bearish
+                last_candle['Open'] > prev_candle['Close'] and  # Last candle opens above previous close
+                last_candle['Close'] < prev_candle['Open']      # Last candle closes below previous open
+            ):
+                return "Bearish Engulfing"
+
+            # Bullish Engulfing Pattern
+            if (
+                prev_candle['Open'] > prev_candle['Close'] and  # Previous candle is bearish
+                last_candle['Close'] > last_candle['Open'] and  # Last candle is bullish
+                last_candle['Open'] < prev_candle['Close'] and  # Last candle opens below previous close
+                last_candle['Close'] > prev_candle['Open']      # Last candle closes above previous open
+            ):
+                return "Bullish Engulfing"
+
+            return None
+
+        # Analyze candlestick patterns
+        candlestick_pattern = analyze_candlestick_patterns(stock_data)
+
+        # Analyze candlestick patterns for 9-day and 21-day periods
+        def analyze_candlestick_trend(stock_data):
+            """
+            Analyze candlestick trends for 9-day and 21-day periods.
+            Returns "Bullish Crossover", "Bearish Crossover", or None.
+            """
+            if len(stock_data) < 21:
+                return None
+
+            # Calculate 9-day and 21-day moving averages of the close price
+            stock_data['9_MA'] = stock_data['Close'].rolling(window=9).mean()
+            stock_data['21_MA'] = stock_data['Close'].rolling(window=21).mean()
+
+            # Check for crossover in the last two days
+            if (
+                stock_data['9_MA'].iloc[-2] <= stock_data['21_MA'].iloc[-2] and
+                stock_data['9_MA'].iloc[-1] > stock_data['21_MA'].iloc[-1]
+            ):
+                return "Bullish Crossover"
+
+            if (
+                stock_data['9_MA'].iloc[-2] >= stock_data['21_MA'].iloc[-2] and
+                stock_data['9_MA'].iloc[-1] < stock_data['21_MA'].iloc[-1]
+            ):
+                return "Bearish Crossover"
+
+            return None
+
+        # Analyze candlestick trend for crossovers
+        candlestick_trend = analyze_candlestick_trend(stock_data)
+
+        # Enhanced recommendation logic with candlestick trend crossovers
         if recommendation is None:
-            if last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
+            if candlestick_trend == "Bearish Crossover":
+                recommendation = "SELL (Bearish Crossover) "
+            elif candlestick_trend == "Bullish Crossover":
+                recommendation = "BUY (Bullish Crossover) "
+            elif candlestick_pattern == "Bearish Engulfing" or volume_trend["Analysis"] == "Strong Bearish":
+                recommendation = "SELL"
+            elif candlestick_pattern == "Bullish Engulfing" or volume_trend["Analysis"] == "Strong Bullish":
+                recommendation = "BUY"
+            elif last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Bearish"]:
                 recommendation = "SELL"
             elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
                 if volume_trend["Analysis"] == "Strong Bullish":
@@ -282,16 +373,12 @@ def track_stocks(stock_file):
     
     # Create a DataFrame for better readability
     recommendations_df = pd.DataFrame(recommendations)
+    recommendations_df = recommendations_df.drop(columns=['Signal Alert'], errors='ignore')
     
-    # Create Signal Alert column
-    recommendations_df['Signal Alert'] = recommendations_df.apply(
-        lambda x: x['Company'] if any(signal in x['Recommendation'] 
-        for signal in ['BUY', 'SELL']) else '', axis=1)
-    
-    # Reorder columns to show only needed columns
-    recommendations_df = recommendations_df[['Company', 'Current Price', '30-Day Moving Average', 
-                                          'RSI', 'MACD', 'Volume Analysis', 'Recommendation',
-                                          'Signal Alert']]
+    # Reorder columns to place Recommendation in the second column
+    recommendations_df = recommendations_df[['Company', 'Recommendation', 'Current Price', 
+                                              '30-Day Moving Average', 'RSI', 'MACD', 
+                                              'Volume Analysis']]
     
     # Add a serial number column starting from 1
     recommendations_df.index = recommendations_df.index + 1
