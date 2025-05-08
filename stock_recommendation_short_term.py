@@ -127,6 +127,24 @@ def get_stock_recommendation(stock_symbol):
         # Fetch historical stock data from Yahoo Finance
         stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
 
+        # Check if stock_data is empty
+        if stock_data.empty:
+            logging.error(f"No data available for {stock_symbol}. The DataFrame is empty.")
+            return {
+                "Stock": stock_symbol,
+                "Current Price": float('nan'),
+                "Last Close": float('nan'),
+                "Previous Close": float('nan'),
+                "Today Open": float('nan'),
+                "30-Day Moving Average": float('nan'),
+                "RSI": float('nan'),
+                "MACD": float('nan'),
+                "Upper Bollinger Band": float('nan'),
+                "Lower Bollinger Band": float('nan'),
+                "Volume Analysis": "N/A",
+                "Recommendation": "HOLD (No Data Available)"
+            }
+
         # Flatten multi-level column names if present
         if isinstance(stock_data.columns, pd.MultiIndex):
             stock_data.columns = [col[0] for col in stock_data.columns]
