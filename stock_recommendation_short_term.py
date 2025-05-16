@@ -318,10 +318,10 @@ def get_stock_recommendation(stock_symbol):
                 recommendation = "SELL (Bearish Crossover) "
             elif candlestick_trend == "Bullish Crossover":
                 recommendation = "BUY (Bullish Crossover) "
-            elif candlestick_pattern == "Bearish Engulfing" or volume_trend["Analysis"] == "Strong Bearish":
-                recommendation = "SELL"
-            elif candlestick_pattern == "Bullish Engulfing" or volume_trend["Analysis"] == "Strong Bullish":
-                recommendation = "BUY"
+            elif candlestick_pattern == "Bearish Engulfing" and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
+                recommendation = "SELL (Bearish Engulfing with High Volume)"
+            elif candlestick_pattern == "Bullish Engulfing" and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
+                recommendation = "BUY (Bullish Engulfing with Volume Support)"
             elif last_close < moving_avg_30 and rsi < 30 and macd < 0 and volume_trend["Analysis"] in ["Bearish"]:
                 recommendation = "SELL"
             elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
