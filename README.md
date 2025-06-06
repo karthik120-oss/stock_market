@@ -1,4 +1,4 @@
 Requirements
 ------------
-    * yfinance
+    * yfinance == 0.1.83
     * tabulate
