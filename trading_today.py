@@ -628,9 +628,8 @@ def analyze_stocks_with_patterns(stock_file):
             candlestick_pattern = analyze_candlestick_patterns(stock_data)
             candlestick_trend = analyze_candlestick_trend(stock_data)
             
-            # Check if stock has any of the specified patterns
-            if candlestick_pattern in ["Bearish Engulfing", "Bullish Engulfing"] or \
-               candlestick_trend in ["Bearish Crossover", "Bullish Crossover"]:
+            # Check if stock has any of the specified patterns (only crossovers)
+            if candlestick_trend in ["Bearish Crossover", "Bullish Crossover"]:
                 
                 # Calculate pivot points
                 previous_row = stock_data.iloc[-2]
@@ -649,7 +648,7 @@ def analyze_stocks_with_patterns(stock_file):
                 pattern_recommendations.append({
                     "Company": stock_name,
                     "Symbol": stock_symbol,
-                    "Pattern": candlestick_pattern or candlestick_trend,
+                    "Pattern": candlestick_trend,
                     "Current Price": stock_data['Close'].iloc[-1],
                     "Pivot": pivot,
                     "R1": r1,
@@ -665,28 +664,46 @@ def analyze_stocks_with_patterns(stock_file):
             continue
     
     if pattern_recommendations:
-        # Create DataFrame and format numbers
-        df = pd.DataFrame(pattern_recommendations)
-        numeric_columns = ['Current Price', 'Pivot', 'R1', 'R2', 'R3', 'S1', 'S2', 'S3']
-        df[numeric_columns] = df[numeric_columns].round(2)
+        print("\n🔍 CROSSOVER PATTERN ANALYSIS")
+        print("=" * 50)
         
-        # Add index starting from 1
-        df.index = range(1, len(df) + 1)
-        df.index.name = 'S.No'
-        
-        # Print the DataFrame as a table
-        print("\nStocks with Significant Patterns and Their Support/Resistance Levels:")
-        print(tabulate(df, headers='keys', tablefmt='grid', floatfmt=".2f"))
+        for idx, stock in enumerate(pattern_recommendations, 1):
+            pattern_emoji = "🔴" if "Bearish" in stock["Pattern"] else "🟢"
+            print(f"\n{pattern_emoji} Stock #{idx}: {stock['Company']} ({stock['Symbol']})")
+            print("-" * 50)
+            print(f"Pattern Detected: {stock['Pattern']}")
+            print(f"Current Price: ₹{stock['Current Price']:.2f}")
+            print("\n📊 Price Levels:")
+            print(f"Pivot Point:  ₹{stock['Pivot']:.2f}")
+            print("\n🔺 Resistance Levels:")
+            print(f"R1: ₹{stock['R1']:.2f}")
+            print(f"R2: ₹{stock['R2']:.2f}")
+            print(f"R3: ₹{stock['R3']:.2f}")
+            print("\n🔻 Support Levels:")
+            print(f"S1: ₹{stock['S1']:.2f}")
+            print(f"S2: ₹{stock['S2']:.2f}")
+            print(f"S3: ₹{stock['S3']:.2f}")
+            
+            # Add trading insight based on current price vs pivot
+            print("\n📈 Trading Insight:")
+            if stock['Current Price'] > stock['Pivot']:
+                if "Bearish" in stock["Pattern"]:
+                    print("Price is above pivot point but showing bearish crossover - Watch for potential reversal")
+                else:
+                    print("Price is above pivot point and showing bullish crossover - Uptrend likely to continue")
+            else:
+                if "Bearish" in stock["Pattern"]:
+                    print("Price is below pivot point and showing bearish crossover - Downtrend likely to continue")
+                else:
+                    print("Price is below pivot point but showing bullish crossover - Watch for potential reversal")
+            
+            print("\n" + "=" * 50)
     else:
-        print("\nNo stocks found with specified patterns.")
+        print("\nNo stocks found with crossover patterns.")
 
 if __name__ == "__main__":
     # Specify the JSON file that contains the stock symbols and company names
     stock_file = "stocks.json"
     
-    # Run both the original tracking function and the new pattern analysis
-    print("\nGeneral Stock Recommendations:")
-    track_stocks(stock_file)
-    
-    print("\nDetailed Pattern Analysis with Support/Resistance Levels:")
+    # Only run the pattern analysis
     analyze_stocks_with_patterns(stock_file)
