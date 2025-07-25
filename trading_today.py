@@ -91,7 +91,6 @@ def fetch_stock_data_robust(symbol, period="60d", max_retries=3, delay_between_r
             data = ticker.history(period=period, auto_adjust=False, timeout=30)
             
             if not data.empty:
-                logging.info(f"Successfully fetched data for {symbol} on attempt {attempt + 1}")
                 return data
             else:
                 logging.warning(f"Empty data received for {symbol} on attempt {attempt + 1}")
@@ -323,6 +322,52 @@ def calculate_ultimate_oscillator(high: pd.Series, low: pd.Series, close: pd.Ser
     
     uo = 100 * ((4 * avg7) + (2 * avg14) + avg28) / (4 + 2 + 1)
     return uo
+
+def calculate_support_resistance_levels(stock_data):
+    """
+    Calculate support and resistance levels using pivot points methodology
+    Returns dictionary with pivot, resistance, and support levels
+    """
+    try:
+        # Use previous day's data for pivot calculation
+        previous_row = stock_data.iloc[-2] if len(stock_data) >= 2 else stock_data.iloc[-1]
+        high = previous_row['High']
+        low = previous_row['Low']
+        close = previous_row['Close']
+        
+        # Calculate pivot point
+        pivot = (high + low + close) / 3
+        
+        # Calculate resistance levels
+        r1 = 2 * pivot - low
+        r2 = pivot + (high - low)
+        r3 = high + 2 * (pivot - low)
+        
+        # Calculate support levels
+        s1 = 2 * pivot - high
+        s2 = pivot - (high - low)
+        s3 = low - 2 * (high - pivot)
+        
+        return {
+            "pivot": pivot,
+            "r1": r1,
+            "r2": r2,
+            "r3": r3,
+            "s1": s1,
+            "s2": s2,
+            "s3": s3
+        }
+    except Exception as e:
+        logging.warning(f"Error calculating support/resistance levels: {e}")
+        return {
+            "pivot": None,
+            "r1": None,
+            "r2": None,
+            "r3": None,
+            "s1": None,
+            "s2": None,
+            "s3": None
+        }
 
 def calculate_intraday_rsi_multiple(close: pd.Series) -> Dict[str, pd.Series]:
     """Calculate RSI for multiple periods for intraday sensitivity"""
@@ -627,7 +672,6 @@ def get_stock_recommendation(stock_symbol):
         recommendation = None
 
         # Fetch historical stock data with robust error handling
-        logging.info(f"Fetching fresh data for {stock_symbol}")
         stock_data = fetch_stock_data_robust(stock_symbol, period="60d", delay_between_requests=2.0)
         
         # If no data available, try alternative source
@@ -853,8 +897,7 @@ def get_stock_recommendation(stock_symbol):
         # Function to analyze candlestick patterns
         candlestick_pattern = analyze_candlestick_patterns(stock_data)
 
-        # Analyze candlestick patterns for 9-day and 21-day periods
-        candlestick_trend = analyze_candlestick_trend(stock_data)
+
 
         # Enhanced recommendation logic using confidence scoring with all intraday indicators
         enhanced_indicators = {
@@ -909,11 +952,7 @@ def get_stock_recommendation(stock_symbol):
         # Enhanced recommendation logic with confidence scoring
         if recommendation is None:
             # Priority 1: Candlestick patterns with volume confirmation
-            if candlestick_trend == "Bearish Crossover":
-                recommendation = f"SELL (Bearish Crossover - Confidence: {confidence:.1%})"
-            elif candlestick_trend == "Bullish Crossover":
-                recommendation = f"BUY (Bullish Crossover - Confidence: {confidence:.1%})"
-            elif candlestick_pattern == "Bearish Engulfing" and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
+            if candlestick_pattern == "Bearish Engulfing" and volume_trend["Analysis"] in ["Strong Bearish", "Bearish"]:
                 recommendation = f"SELL (Bearish Engulfing - Confidence: {confidence:.1%})"
             elif candlestick_pattern == "Bullish Engulfing" and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
                 recommendation = f"BUY (Bullish Engulfing - Confidence: {confidence:.1%})"
@@ -1052,32 +1091,7 @@ def analyze_candlestick_patterns(stock_data):
 
     return None
 
-def analyze_candlestick_trend(stock_data):
-    """
-    Analyze candlestick trends for 9-day and 21-day periods.
-    Returns "Bullish Crossover", "Bearish Crossover", or None.
-    """
-    if len(stock_data) < 21:
-        return None
 
-    # Calculate 9-day and 21-day moving averages of the close price
-    stock_data['9_MA'] = stock_data['Close'].rolling(window=9).mean()
-    stock_data['21_MA'] = stock_data['Close'].rolling(window=21).mean()
-
-    # Check for crossover in the last two days
-    if (
-        stock_data['9_MA'].iloc[-2] <= stock_data['21_MA'].iloc[-2] and
-        stock_data['9_MA'].iloc[-1] > stock_data['21_MA'].iloc[-1]
-    ):
-        return "Bullish Crossover"
-
-    if (
-        stock_data['9_MA'].iloc[-2] >= stock_data['21_MA'].iloc[-2] and
-        stock_data['9_MA'].iloc[-1] < stock_data['21_MA'].iloc[-1]
-    ):
-        return "Bearish Crossover"
-
-    return None
 
 # Track each stock and provide recommendations
 def track_stocks(stock_file):
@@ -1125,99 +1139,7 @@ def track_stocks(stock_file):
         print("No recommendations generated.")
         return
 
-def analyze_stocks_with_patterns(stock_file):
-    # Read the stock symbols from the JSON file
-    stocks = read_stock_symbols_from_json(stock_file)
-    
-    pattern_recommendations = []
-    for stock_name, stock_symbol in stocks.items():
-        try:
-            # Fetch data and analyze patterns
-            stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
-            
-            if stock_data.empty:
-                continue
-                
-            # Flatten multi-level column names if present
-            if isinstance(stock_data.columns, pd.MultiIndex):
-                stock_data.columns = [col[0] for col in stock_data.columns]
-                
-            # Analyze candlestick patterns
-            candlestick_pattern = analyze_candlestick_patterns(stock_data)
-            candlestick_trend = analyze_candlestick_trend(stock_data)
-            
-            # Check if stock has any of the specified patterns (only crossovers)
-            if candlestick_trend in ["Bearish Crossover", "Bullish Crossover"]:
-                
-                # Calculate pivot points
-                previous_row = stock_data.iloc[-2]
-                high = previous_row['High']
-                low = previous_row['Low']
-                close = previous_row['Close']
 
-                pivot = (high + low + close) / 3
-                r1 = 2 * pivot - low
-                s1 = 2 * pivot - high
-                r2 = pivot + (high - low)
-                s2 = pivot - (high - low)
-                r3 = high + 2 * (pivot - low)
-                s3 = low - 2 * (high - pivot)
-                
-                pattern_recommendations.append({
-                    "Company": stock_name,
-                    "Symbol": stock_symbol,
-                    "Pattern": candlestick_trend,
-                    "Current Price": stock_data['Close'].iloc[-1],
-                    "Pivot": pivot,
-                    "R1": r1,
-                    "R2": r2,
-                    "R3": r3,
-                    "S1": s1,
-                    "S2": s2,
-                    "S3": s3
-                })
-                
-        except Exception as e:
-            print(f"Error analyzing {stock_symbol}: {str(e)}")
-            continue
-    
-    if pattern_recommendations:
-        print("\n🔍 CROSSOVER PATTERN ANALYSIS")
-        print("=" * 50)
-        
-        for idx, stock in enumerate(pattern_recommendations, 1):
-            pattern_emoji = "🔴" if "Bearish" in stock["Pattern"] else "🟢"
-            print(f"\n{pattern_emoji} Stock #{idx}: {stock['Company']} ({stock['Symbol']})")
-            print("-" * 50)
-            print(f"Pattern Detected: {stock['Pattern']}")
-            print(f"Current Price: ₹{stock['Current Price']:.2f}")
-            print("\n📊 Price Levels:")
-            print(f"Pivot Point:  ₹{stock['Pivot']:.2f}")
-            print("\n🔺 Resistance Levels:")
-            print(f"R1: ₹{stock['R1']:.2f}")
-            print(f"R2: ₹{stock['R2']:.2f}")
-            print(f"R3: ₹{stock['R3']:.2f}")
-            print("\n🔻 Support Levels:")
-            print(f"S1: ₹{stock['S1']:.2f}")
-            print(f"S2: ₹{stock['S2']:.2f}")
-            print(f"S3: ₹{stock['S3']:.2f}")
-            
-            # Add trading insight based on current price vs pivot
-            print("\n📈 Trading Insight:")
-            if stock['Current Price'] > stock['Pivot']:
-                if "Bearish" in stock["Pattern"]:
-                    print("Price is above pivot point but showing bearish crossover - Watch for potential reversal")
-                else:
-                    print("Price is above pivot point and showing bullish crossover - Uptrend likely to continue")
-            else:
-                if "Bearish" in stock["Pattern"]:
-                    print("Price is below pivot point and showing bearish crossover - Downtrend likely to continue")
-                else:
-                    print("Price is below pivot point but showing bullish crossover - Watch for potential reversal")
-            
-            print("\n" + "=" * 50)
-    else:
-        print("\nNo stocks found with crossover patterns.")
 
 # NEW: Intraday Trading Summary Function
 def get_intraday_trading_summary(stock_file):
@@ -1238,6 +1160,23 @@ def get_intraday_trading_summary(stock_file):
             confidence_val = float(confidence_str.replace("%", "")) / 100 if confidence_str != "N/A" else 0
             
             if confidence_val >= 0.6:  # Only show high-confidence signals
+                # Calculate support and resistance levels (reuse data from recommendation if possible)
+                try:
+                    stock_data = fetch_stock_data_robust(stock_symbol, period="60d", delay_between_requests=0.5)
+                    if not stock_data.empty:
+                        # Flatten multi-level column names if present
+                        if isinstance(stock_data.columns, pd.MultiIndex):
+                            stock_data.columns = [col[0] for col in stock_data.columns]
+                        
+                        support_resistance = calculate_support_resistance_levels(stock_data)
+                    else:
+                        support_resistance = {"pivot": None, "r1": None, "r2": None, "r3": None, 
+                                            "s1": None, "s2": None, "s3": None}
+                except Exception as e:
+                    logging.warning(f"Error fetching data for support/resistance calculation for {stock_symbol}: {e}")
+                    support_resistance = {"pivot": None, "r1": None, "r2": None, "r3": None, 
+                                        "s1": None, "s2": None, "s3": None}
+                
                 intraday_data = {
                     "Company": stock_name,
                     "Symbol": stock_symbol,
@@ -1249,7 +1188,8 @@ def get_intraday_trading_summary(stock_file):
                     "RSI (5)": recommendation_data["RSI (5-period)"],
                     "RSI (9)": recommendation_data["RSI (9-period)"],
                     "Recommendation": recommendation_data["Recommendation"],
-                    "Confidence": confidence_str
+                    "Confidence": confidence_str,
+                    "Support_Resistance": support_resistance
                 }
                 
                 # Add trading signals
@@ -1310,6 +1250,31 @@ def get_intraday_trading_summary(stock_file):
             print(f"Confidence: {stock['Confidence']}")
             print(f"Key Signals: {stock['Key Signals']}")
             
+            # Add Support and Resistance Levels
+            sr_levels = stock.get('Support_Resistance', {})
+            if sr_levels and sr_levels.get('pivot') is not None:
+                print("\n📊 Support & Resistance Levels:")
+                print(f"Pivot Point:  ₹{sr_levels['pivot']:.2f}")
+                print("\n🔺 Resistance Levels:")
+                print(f"R1: ₹{sr_levels['r1']:.2f}")
+                print(f"R2: ₹{sr_levels['r2']:.2f}")
+                print(f"R3: ₹{sr_levels['r3']:.2f}")
+                print("\n🔻 Support Levels:")
+                print(f"S1: ₹{sr_levels['s1']:.2f}")
+                print(f"S2: ₹{sr_levels['s2']:.2f}")
+                print(f"S3: ₹{sr_levels['s3']:.2f}")
+                
+                # Add trading insight based on current price vs pivot
+                current_price = stock['Current Price']
+                pivot = sr_levels['pivot']
+                print(f"\n📈 Price vs Pivot:")
+                if current_price > pivot:
+                    distance = ((current_price - pivot) / pivot) * 100
+                    print(f"Above Pivot (+{distance:.1f}%) - Bullish bias")
+                else:
+                    distance = ((pivot - current_price) / pivot) * 100
+                    print(f"Below Pivot (-{distance:.1f}%) - Bearish bias")
+            
             # Add quick stats
             print("\n📊 Quick Stats:")
             if not pd.isna(stock['Money Flow Index']):
@@ -1352,21 +1317,19 @@ if __name__ == "__main__":
         print(f"❌ Error in intraday analysis: {e}")
         print("   Try running again later.")
     
-    # Run pattern analysis (usually faster)
-    try:
-        print("\n📊 STARTING PATTERN ANALYSIS...")
-        analyze_stocks_with_patterns(stock_file)
-    except KeyboardInterrupt:
-        print("\n❌ Pattern analysis interrupted by user.")
-    except Exception as e:
-        print(f"❌ Error in pattern analysis: {e}")
-        print("   Try running again later.")
+
     
     # Provide troubleshooting tips
-    print("\n💡 TIPS")
+    print("\n💡 TIPS & TRADING GUIDE")
     print("=" * 50)
     print("✅ The script includes automatic rate limiting")
     print("✅ Fresh data is fetched for each analysis")  
     print("🔄 Run the script when you need updated analysis")
     print("⏰ Wait 10-15 minutes between full runs to avoid rate limits")
+    print("\n📊 SUPPORT & RESISTANCE LEVELS GUIDE:")
+    print("🔺 Resistance (R1, R2, R3): Price levels where selling pressure may increase")
+    print("🔻 Support (S1, S2, S3): Price levels where buying interest may emerge")
+    print("📍 Pivot Point: Key reference level - above = bullish bias, below = bearish bias")
+    print("💡 Use these levels for entry/exit points and stop-loss placement")
+    print("⚠️  Higher numbered levels (R3/S3) are stronger but less frequently tested")
     print("=" * 50)
