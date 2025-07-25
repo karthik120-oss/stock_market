@@ -1,4 +1,66 @@
 #! /usr/bin/env python3
+"""
+Enhanced Intraday Trading Analysis Tool
+
+This script provides comprehensive technical analysis with advanced indicators specifically
+optimized for intraday trading. It includes both traditional and cutting-edge indicators
+to provide high-accuracy trading signals.
+
+NEW INTRADAY INDICATORS ADDED:
+==============================
+
+1. VWAP (Volume Weighted Average Price) - CRITICAL for intraday
+   - Shows the true average price weighted by volume
+   - Price above VWAP = Bullish, below VWAP = Bearish
+
+2. Supertrend Indicator - EXCELLENT for trend following
+   - Uses ATR-based dynamic support/resistance
+   - Very reliable for intraday trend direction
+
+3. Money Flow Index (MFI) - Volume-weighted RSI
+   - Combines price momentum with volume
+   - More reliable than regular RSI for intraday
+
+4. Parabolic SAR - Trend reversal detection
+   - Identifies potential trend reversals
+   - Excellent for stop-loss placement
+
+5. Multiple RSI Timeframes (5, 9, 14, 21 periods)
+   - Faster signals for intraday trading
+   - RSI(5) and RSI(9) are very sensitive to short-term moves
+
+6. Ultimate Oscillator - Multi-timeframe momentum
+   - Uses 7, 14, and 28-period averages
+   - Reduces false signals compared to single-period oscillators
+
+7. Awesome Oscillator - Momentum indicator
+   - Shows market momentum changes
+   - Good for confirming trend direction
+
+8. Elder's Force Index - Price + Volume combination
+   - Measures the power used to move price
+   - Positive = buying pressure, Negative = selling pressure
+
+9. MACD Histogram - Better timing than MACD line
+   - Shows the difference between MACD and signal line
+   - Earlier signals than traditional MACD crossovers
+
+10. Rate of Change (ROC) - Momentum measurement
+    - Shows percentage change in price
+    - Good for identifying momentum shifts
+
+CONFIDENCE SCORING:
+==================
+The system now uses a sophisticated confidence scoring algorithm that weighs:
+- VWAP position (highest weight for intraday)
+- Supertrend direction (very high confidence)
+- Multiple RSI timeframes for confirmation
+- Volume-based indicators (MFI, Elder's Force Index)
+- Trend reversal signals (Parabolic SAR)
+
+Only signals with 60%+ confidence are highlighted in the intraday summary.
+"""
+
 import pandas as pd
 import json
 from tabulate import tabulate
@@ -8,11 +70,67 @@ import traceback
 import logging
 import numpy as np
 from typing import Dict, Tuple
-
+import time
 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Enhanced data fetching with fallback options
+def fetch_stock_data_robust(symbol, period="60d", max_retries=3, delay_between_requests=0.5):
+    """
+    Robust stock data fetching with rate limiting, retry strategies and fallback options
+    """
+    # Add delay to respect rate limits
+    time.sleep(delay_between_requests)
+    
+    for attempt in range(max_retries):
+        try:
+            # Let yfinance handle its own sessions (no custom session)
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period=period, auto_adjust=False, timeout=30)
+            
+            if not data.empty:
+                logging.info(f"Successfully fetched data for {symbol} on attempt {attempt + 1}")
+                return data
+            else:
+                logging.warning(f"Empty data received for {symbol} on attempt {attempt + 1}")
+                
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Check if it's a rate limiting error
+            if "429" in error_msg or "too many requests" in error_msg:
+                logging.warning(f"Rate limited for {symbol}, waiting longer...")
+                rate_limit_wait = 5 + (attempt * 3)  # Longer wait for rate limits
+                time.sleep(rate_limit_wait)
+            else:
+                logging.warning(f"Attempt {attempt + 1} failed for {symbol}: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                # Exponential backoff with longer delays for rate limiting
+                if "429" in error_msg or "too many requests" in error_msg:
+                    wait_time = 10 + (attempt * 5)  # Much longer for rate limits
+                else:
+                    wait_time = (2 ** attempt) + (attempt * 0.5)
+                
+                logging.info(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                logging.error(f"All attempts failed for {symbol}")
+    
+    # Return empty DataFrame if all attempts failed
+    return pd.DataFrame()
+
+# Alternative data source function (placeholder for future implementation)
+def fetch_from_alternative_source(symbol):
+    """
+    Placeholder for alternative data sources like Alpha Vantage, Quandl, etc.
+    This can be implemented as a fallback when Yahoo Finance fails
+    """
+    # This is a placeholder - you can implement alternative APIs here
+    logging.info(f"Alternative data source not implemented for {symbol}")
+    return pd.DataFrame()
 
 # Enhanced Technical Indicators
 def calculate_stochastic_rsi(close_prices: pd.Series, rsi_period: int = 14, stoch_period: int = 14) -> pd.Series:
@@ -56,67 +174,320 @@ def calculate_cci(high: pd.Series, low: pd.Series, close: pd.Series, period: int
     cci = (typical_price - sma) / (0.015 * mean_deviation)
     return cci
 
+# NEW INTRADAY-FOCUSED INDICATORS
+def calculate_vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -> pd.Series:
+    """Calculate Volume Weighted Average Price (VWAP) - crucial for intraday trading"""
+    typical_price = (high + low + close) / 3
+    price_volume = typical_price * volume
+    cumulative_pv = price_volume.cumsum()
+    cumulative_volume = volume.cumsum()
+    vwap = cumulative_pv / cumulative_volume
+    return vwap
+
+def calculate_money_flow_index(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series, period: int = 14) -> pd.Series:
+    """Calculate Money Flow Index (MFI) - volume-weighted RSI"""
+    typical_price = (high + low + close) / 3
+    money_flow = typical_price * volume
+    
+    positive_flow = []
+    negative_flow = []
+    
+    for i in range(1, len(typical_price)):
+        if typical_price.iloc[i] > typical_price.iloc[i-1]:
+            positive_flow.append(money_flow.iloc[i])
+            negative_flow.append(0)
+        elif typical_price.iloc[i] < typical_price.iloc[i-1]:
+            positive_flow.append(0)
+            negative_flow.append(money_flow.iloc[i])
+        else:
+            positive_flow.append(0)
+            negative_flow.append(0)
+    
+    positive_flow = pd.Series([0] + positive_flow, index=typical_price.index)
+    negative_flow = pd.Series([0] + negative_flow, index=typical_price.index)
+    
+    positive_mf = positive_flow.rolling(period).sum()
+    negative_mf = negative_flow.rolling(period).sum()
+    
+    mfi = 100 - (100 / (1 + (positive_mf / negative_mf)))
+    return mfi
+
+def calculate_parabolic_sar(high: pd.Series, low: pd.Series, close: pd.Series, af_start: float = 0.02, af_increment: float = 0.02, af_max: float = 0.2) -> pd.Series:
+    """Calculate Parabolic SAR - excellent for intraday trend reversal detection"""
+    sar = pd.Series(index=close.index, dtype=float)
+    trend = pd.Series(index=close.index, dtype=int)
+    af = af_start
+    ep = 0  # Extreme Point
+    
+    # Initialize
+    sar.iloc[0] = low.iloc[0]
+    trend.iloc[0] = 1  # 1 for uptrend, -1 for downtrend
+    
+    for i in range(1, len(close)):
+        if trend.iloc[i-1] == 1:  # Uptrend
+            sar.iloc[i] = sar.iloc[i-1] + af * (ep - sar.iloc[i-1])
+            
+            if high.iloc[i] > ep:
+                ep = high.iloc[i]
+                af = min(af + af_increment, af_max)
+            
+            if sar.iloc[i] > low.iloc[i]:
+                trend.iloc[i] = -1
+                sar.iloc[i] = ep
+                af = af_start
+                ep = low.iloc[i]
+            else:
+                trend.iloc[i] = 1
+        else:  # Downtrend
+            sar.iloc[i] = sar.iloc[i-1] + af * (ep - sar.iloc[i-1])
+            
+            if low.iloc[i] < ep:
+                ep = low.iloc[i]
+                af = min(af + af_increment, af_max)
+            
+            if sar.iloc[i] < high.iloc[i]:
+                trend.iloc[i] = 1
+                sar.iloc[i] = ep
+                af = af_start
+                ep = high.iloc[i]
+            else:
+                trend.iloc[i] = -1
+    
+    return sar
+
+def calculate_awesome_oscillator(high: pd.Series, low: pd.Series) -> pd.Series:
+    """Calculate Awesome Oscillator - momentum indicator"""
+    median_price = (high + low) / 2
+    ao = median_price.rolling(5).mean() - median_price.rolling(34).mean()
+    return ao
+
+def calculate_supertrend(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 10, multiplier: float = 3.0) -> Tuple[pd.Series, pd.Series]:
+    """Calculate Supertrend indicator - excellent for intraday trend following"""
+    atr = calculate_atr(high, low, close, period)
+    hl2 = (high + low) / 2
+    
+    upper_band = hl2 + (multiplier * atr)
+    lower_band = hl2 - (multiplier * atr)
+    
+    supertrend = pd.Series(index=close.index, dtype=float)
+    direction = pd.Series(index=close.index, dtype=int)
+    
+    for i in range(len(close)):
+        if i == 0:
+            supertrend.iloc[i] = lower_band.iloc[i]
+            direction.iloc[i] = 1
+        else:
+            if close.iloc[i] <= supertrend.iloc[i-1]:
+                supertrend.iloc[i] = upper_band.iloc[i]
+                direction.iloc[i] = -1
+            else:
+                supertrend.iloc[i] = lower_band.iloc[i]
+                direction.iloc[i] = 1
+    
+    return supertrend, direction
+
+def calculate_elder_force_index(close: pd.Series, volume: pd.Series, period: int = 13) -> pd.Series:
+    """Calculate Elder's Force Index - combines price and volume"""
+    force_index = (close - close.shift(1)) * volume
+    return force_index.ewm(span=period).mean()
+
+def calculate_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
+    """Calculate On-Balance Volume (OBV)"""
+    obv = pd.Series(index=close.index, dtype=float)
+    obv.iloc[0] = volume.iloc[0]
+    
+    for i in range(1, len(close)):
+        if close.iloc[i] > close.iloc[i-1]:
+            obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
+        elif close.iloc[i] < close.iloc[i-1]:
+            obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+        else:
+            obv.iloc[i] = obv.iloc[i-1]
+    
+    return obv
+
+def calculate_rate_of_change(close: pd.Series, period: int = 12) -> pd.Series:
+    """Calculate Rate of Change (ROC)"""
+    roc = ((close - close.shift(period)) / close.shift(period)) * 100
+    return roc
+
+def calculate_ultimate_oscillator(high: pd.Series, low: pd.Series, close: pd.Series, 
+                                period1: int = 7, period2: int = 14, period3: int = 28) -> pd.Series:
+    """Calculate Ultimate Oscillator - momentum indicator using multiple timeframes"""
+    bp = close - low.rolling(2).min()  # Buying Pressure
+    tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+    
+    avg7 = bp.rolling(period1).sum() / tr.rolling(period1).sum()
+    avg14 = bp.rolling(period2).sum() / tr.rolling(period2).sum()
+    avg28 = bp.rolling(period3).sum() / tr.rolling(period3).sum()
+    
+    uo = 100 * ((4 * avg7) + (2 * avg14) + avg28) / (4 + 2 + 1)
+    return uo
+
+def calculate_intraday_rsi_multiple(close: pd.Series) -> Dict[str, pd.Series]:
+    """Calculate RSI for multiple periods for intraday sensitivity"""
+    rsi_periods = {'RSI_5': 5, 'RSI_9': 9, 'RSI_14': 14, 'RSI_21': 21}
+    rsi_dict = {}
+    
+    for name, period in rsi_periods.items():
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).ewm(span=period, adjust=False).mean()
+        loss = (-delta.where(delta < 0, 0)).ewm(span=period, adjust=False).mean()
+        rs = gain / loss
+        rsi_dict[name] = 100 - (100 / (1 + rs))
+    
+    return rsi_dict
+
+def calculate_macd_histogram(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """Calculate MACD with histogram for better signal timing"""
+    exp1 = close.ewm(span=fast).mean()
+    exp2 = close.ewm(span=slow).mean()
+    macd_line = exp1 - exp2
+    signal_line = macd_line.ewm(span=signal).mean()
+    histogram = macd_line - signal_line
+    
+    return macd_line, signal_line, histogram
+
 def calculate_enhanced_signal_confidence(indicators: Dict) -> Tuple[str, float]:
-    """Calculate confidence score based on multiple enhanced indicators"""
+    """Calculate confidence score based on multiple enhanced indicators - optimized for intraday trading"""
     signals = []
+    
+    # VWAP signals (critical for intraday)
+    current_price = indicators.get('current_price')
+    vwap = indicators.get('vwap')
+    if current_price is not None and vwap is not None and not pd.isna(vwap):
+        if current_price > vwap:
+            signals.append(('buy', 0.9))  # High confidence when above VWAP
+        else:
+            signals.append(('sell', 0.9))  # High confidence when below VWAP
+    
+    # Supertrend signals (excellent for intraday)
+    supertrend_direction = indicators.get('supertrend_direction')
+    if supertrend_direction is not None:
+        if supertrend_direction == 1:
+            signals.append(('buy', 0.95))  # Very high confidence
+        elif supertrend_direction == -1:
+            signals.append(('sell', 0.95))  # Very high confidence
+    
+    # Multiple RSI timeframes for faster signals
+    rsi_5 = indicators.get('rsi_5')
+    rsi_9 = indicators.get('rsi_9')
+    rsi_14 = indicators.get('rsi_14')
+    
+    if rsi_5 is not None and not pd.isna(rsi_5):
+        if rsi_5 < 25:
+            signals.append(('buy', 0.85))
+        elif rsi_5 > 75:
+            signals.append(('sell', 0.85))
+    
+    if rsi_9 is not None and not pd.isna(rsi_9):
+        if rsi_9 < 30:
+            signals.append(('buy', 0.75))
+        elif rsi_9 > 70:
+            signals.append(('sell', 0.75))
+    
+    # Money Flow Index (volume-weighted RSI)
+    mfi = indicators.get('mfi')
+    if mfi is not None and not pd.isna(mfi):
+        if mfi < 20:
+            signals.append(('buy', 0.8))
+        elif mfi > 80:
+            signals.append(('sell', 0.8))
+        elif mfi < 30:
+            signals.append(('buy', 0.6))
+        elif mfi > 70:
+            signals.append(('sell', 0.6))
+    
+    # Parabolic SAR (trend reversal)
+    sar_signal = indicators.get('sar_signal')
+    if sar_signal is not None:
+        if sar_signal == 'bullish_reversal':
+            signals.append(('buy', 0.9))
+        elif sar_signal == 'bearish_reversal':
+            signals.append(('sell', 0.9))
+    
+    # MACD Histogram for timing
+    macd_histogram = indicators.get('macd_histogram')
+    macd_prev_histogram = indicators.get('macd_prev_histogram')
+    if macd_histogram is not None and macd_prev_histogram is not None:
+        if macd_histogram > 0 and macd_prev_histogram <= 0:
+            signals.append(('buy', 0.8))  # Bullish crossover
+        elif macd_histogram < 0 and macd_prev_histogram >= 0:
+            signals.append(('sell', 0.8))  # Bearish crossover
+    
+    # Ultimate Oscillator
+    uo = indicators.get('ultimate_oscillator')
+    if uo is not None and not pd.isna(uo):
+        if uo < 30:
+            signals.append(('buy', 0.7))
+        elif uo > 70:
+            signals.append(('sell', 0.7))
+    
+    # Awesome Oscillator
+    ao = indicators.get('awesome_oscillator')
+    ao_prev = indicators.get('ao_prev')
+    if ao is not None and ao_prev is not None:
+        if ao > 0 and ao_prev <= 0:
+            signals.append(('buy', 0.75))
+        elif ao < 0 and ao_prev >= 0:
+            signals.append(('sell', 0.75))
+    
+    # Elder's Force Index
+    efi = indicators.get('elder_force_index')
+    if efi is not None and not pd.isna(efi):
+        if efi > 0:
+            signals.append(('buy', 0.6))
+        elif efi < 0:
+            signals.append(('sell', 0.6))
+    
+    # Rate of Change
+    roc = indicators.get('rate_of_change')
+    if roc is not None and not pd.isna(roc):
+        if roc > 2:
+            signals.append(('buy', 0.65))
+        elif roc < -2:
+            signals.append(('sell', 0.65))
     
     # Stochastic RSI signals (more sensitive)
     stoch_rsi = indicators.get('stoch_rsi')
     if stoch_rsi is not None and not pd.isna(stoch_rsi):
         if stoch_rsi < 20:
-            signals.append(('buy', 0.9))
-        elif stoch_rsi < 30:
             signals.append(('buy', 0.7))
+        elif stoch_rsi < 30:
+            signals.append(('buy', 0.5))
         elif stoch_rsi > 80:
-            signals.append(('sell', 0.9))
-        elif stoch_rsi > 70:
             signals.append(('sell', 0.7))
+        elif stoch_rsi > 70:
+            signals.append(('sell', 0.5))
     
     # Williams %R signals
     williams_r = indicators.get('williams_r')
     if williams_r is not None and not pd.isna(williams_r):
         if williams_r < -80:
-            signals.append(('buy', 0.8))
+            signals.append(('buy', 0.6))
         elif williams_r > -20:
-            signals.append(('sell', 0.8))
+            signals.append(('sell', 0.6))
     
     # CCI signals
     cci = indicators.get('cci')
     if cci is not None and not pd.isna(cci):
         if cci < -100:
-            signals.append(('buy', 0.7))
-        elif cci > 100:
-            signals.append(('sell', 0.7))
-    
-    # Regular RSI (for confirmation)
-    rsi = indicators.get('rsi')
-    if rsi is not None and not pd.isna(rsi):
-        if rsi < 30:
             signals.append(('buy', 0.6))
-        elif rsi > 70:
+        elif cci > 100:
             signals.append(('sell', 0.6))
-    
-    # MACD signal
-    macd_line = indicators.get('macd')
-    macd_signal = indicators.get('macd_signal', 0)
-    if macd_line is not None and not pd.isna(macd_line):
-        if macd_line > macd_signal:
-            signals.append(('buy', 0.7))
-        else:
-            signals.append(('sell', 0.7))
     
     # Volume confirmation
     volume_trend = indicators.get('volume_trend', '')
     if volume_trend == "Strong Bullish":
-        signals.append(('buy', 0.8))
+        signals.append(('buy', 0.7))
     elif volume_trend == "Strong Bearish":
-        signals.append(('sell', 0.8))
+        signals.append(('sell', 0.7))
     elif volume_trend == "Weak Bullish":
-        signals.append(('buy', 0.4))
+        signals.append(('buy', 0.3))
     elif volume_trend == "Weak Bearish":
-        signals.append(('sell', 0.4))
+        signals.append(('sell', 0.3))
     
-    # Calculate consensus
+    # Calculate consensus with improved weighting
     if not signals:
         return 'hold', 0.5
     
@@ -127,11 +498,15 @@ def calculate_enhanced_signal_confidence(indicators: Dict) -> Tuple[str, float]:
     sell_strength = sum(sell_signals)
     total_signals = len(signals)
     
+    # Enhanced confidence calculation
+    net_strength = abs(buy_strength - sell_strength)
+    max_possible_strength = max(buy_strength + sell_strength, 1)
+    
     if buy_strength > sell_strength:
-        confidence = min(buy_strength / total_signals, 1.0)
+        confidence = min((net_strength / max_possible_strength) * 1.2, 1.0)
         return 'buy', confidence
     elif sell_strength > buy_strength:
-        confidence = min(sell_strength / total_signals, 1.0)
+        confidence = min((net_strength / max_possible_strength) * 1.2, 1.0)
         return 'sell', confidence
     else:
         return 'hold', 0.5
@@ -251,8 +626,13 @@ def get_stock_recommendation(stock_symbol):
         # Initialize recommendation to None
         recommendation = None
 
-        # Fetch historical stock data from Yahoo Finance
-        stock_data = yf.download(stock_symbol, period="60d", interval="1d", progress=False, auto_adjust=False)
+        # Fetch historical stock data with robust error handling
+        logging.info(f"Fetching fresh data for {stock_symbol}")
+        stock_data = fetch_stock_data_robust(stock_symbol, period="60d", delay_between_requests=2.0)
+        
+        # If no data available, try alternative source
+        if stock_data.empty:
+            stock_data = fetch_from_alternative_source(stock_symbol)
 
         # Check if stock_data is empty
         if stock_data.empty:
@@ -350,6 +730,7 @@ def get_stock_recommendation(stock_symbol):
         
         # Calculate Enhanced Technical Indicators
         try:
+            # Original indicators
             stoch_rsi = calculate_stochastic_rsi(analysis_data['Close'])
             stoch_rsi_value = stoch_rsi.iloc[-1] if not stoch_rsi.empty else None
             
@@ -362,15 +743,91 @@ def get_stock_recommendation(stock_symbol):
             cci = calculate_cci(analysis_data['High'], analysis_data['Low'], analysis_data['Close'])
             cci_value = cci.iloc[-1] if not cci.empty else None
             
+            # NEW INTRADAY INDICATORS
+            # VWAP - Critical for intraday trading
+            vwap = calculate_vwap(analysis_data['High'], analysis_data['Low'], analysis_data['Close'], analysis_data['Volume'])
+            vwap_value = vwap.iloc[-1] if not vwap.empty else None
+            
+            # Money Flow Index - Volume-weighted RSI
+            mfi = calculate_money_flow_index(analysis_data['High'], analysis_data['Low'], analysis_data['Close'], analysis_data['Volume'])
+            mfi_value = mfi.iloc[-1] if not mfi.empty else None
+            
+            # Parabolic SAR - Trend reversal detection
+            sar = calculate_parabolic_sar(analysis_data['High'], analysis_data['Low'], analysis_data['Close'])
+            sar_value = sar.iloc[-1] if not sar.empty else None
+            sar_signal = None
+            if len(sar) >= 2:
+                if current_price > sar_value and analysis_data['Close'].iloc[-2] <= sar.iloc[-2]:
+                    sar_signal = 'bullish_reversal'
+                elif current_price < sar_value and analysis_data['Close'].iloc[-2] >= sar.iloc[-2]:
+                    sar_signal = 'bearish_reversal'
+            
+            # Supertrend - Excellent for intraday trend following
+            supertrend, supertrend_direction = calculate_supertrend(analysis_data['High'], analysis_data['Low'], analysis_data['Close'])
+            supertrend_value = supertrend.iloc[-1] if not supertrend.empty else None
+            supertrend_dir = supertrend_direction.iloc[-1] if not supertrend_direction.empty else None
+            
+            # Awesome Oscillator - Momentum indicator
+            ao = calculate_awesome_oscillator(analysis_data['High'], analysis_data['Low'])
+            ao_value = ao.iloc[-1] if not ao.empty else None
+            ao_prev = ao.iloc[-2] if len(ao) >= 2 else None
+            
+            # Elder's Force Index - Price and volume combination
+            efi = calculate_elder_force_index(analysis_data['Close'], analysis_data['Volume'])
+            efi_value = efi.iloc[-1] if not efi.empty else None
+            
+            # On-Balance Volume
+            obv = calculate_obv(analysis_data['Close'], analysis_data['Volume'])
+            obv_value = obv.iloc[-1] if not obv.empty else None
+            
+            # Rate of Change
+            roc = calculate_rate_of_change(analysis_data['Close'])
+            roc_value = roc.iloc[-1] if not roc.empty else None
+            
+            # Ultimate Oscillator
+            uo = calculate_ultimate_oscillator(analysis_data['High'], analysis_data['Low'], analysis_data['Close'])
+            uo_value = uo.iloc[-1] if not uo.empty else None
+            
+            # Multiple RSI timeframes for intraday sensitivity
+            rsi_multiple = calculate_intraday_rsi_multiple(analysis_data['Close'])
+            rsi_5_value = rsi_multiple['RSI_5'].iloc[-1] if not rsi_multiple['RSI_5'].empty else None
+            rsi_9_value = rsi_multiple['RSI_9'].iloc[-1] if not rsi_multiple['RSI_9'].empty else None
+            rsi_14_value = rsi_multiple['RSI_14'].iloc[-1] if not rsi_multiple['RSI_14'].empty else None
+            rsi_21_value = rsi_multiple['RSI_21'].iloc[-1] if not rsi_multiple['RSI_21'].empty else None
+            
+            # MACD with Histogram for better timing
+            macd_line, macd_signal_line, macd_histogram = calculate_macd_histogram(analysis_data['Close'])
+            macd_histogram_value = macd_histogram.iloc[-1] if not macd_histogram.empty else None
+            macd_prev_histogram = macd_histogram.iloc[-2] if len(macd_histogram) >= 2 else None
+            
             # Determine volatility level
             volatility_level = "High" if atr_value and atr_value > atr.rolling(20).mean().iloc[-1] else "Normal"
             
         except Exception as e:
             logging.warning(f"Error calculating enhanced indicators for {stock_symbol}: {e}")
+            # Set default values for all indicators
             stoch_rsi_value = None
             williams_r_value = None
             atr_value = None
             cci_value = None
+            vwap_value = None
+            mfi_value = None
+            sar_value = None
+            sar_signal = None
+            supertrend_value = None
+            supertrend_dir = None
+            ao_value = None
+            ao_prev = None
+            efi_value = None
+            obv_value = None
+            roc_value = None
+            uo_value = None
+            rsi_5_value = None
+            rsi_9_value = None
+            rsi_14_value = None
+            rsi_21_value = None
+            macd_histogram_value = None
+            macd_prev_histogram = None
             volatility_level = "Unknown"
 
         # Analyze volume trend
@@ -399,14 +856,50 @@ def get_stock_recommendation(stock_symbol):
         # Analyze candlestick patterns for 9-day and 21-day periods
         candlestick_trend = analyze_candlestick_trend(stock_data)
 
-        # Enhanced recommendation logic using confidence scoring
+        # Enhanced recommendation logic using confidence scoring with all intraday indicators
         enhanced_indicators = {
+            # VWAP and current price (critical for intraday)
+            'current_price': current_price,
+            'vwap': vwap_value,
+            
+            # Supertrend (excellent for intraday)
+            'supertrend_direction': supertrend_dir,
+            
+            # Multiple RSI timeframes
+            'rsi_5': rsi_5_value,
+            'rsi_9': rsi_9_value,
+            'rsi_14': rsi_14_value,
+            'rsi_21': rsi_21_value,
+            
+            # Money Flow Index
+            'mfi': mfi_value,
+            
+            # Parabolic SAR
+            'sar_signal': sar_signal,
+            
+            # MACD Histogram
+            'macd_histogram': macd_histogram_value,
+            'macd_prev_histogram': macd_prev_histogram,
+            
+            # Ultimate Oscillator
+            'ultimate_oscillator': uo_value,
+            
+            # Awesome Oscillator
+            'awesome_oscillator': ao_value,
+            'ao_prev': ao_prev,
+            
+            # Elder's Force Index
+            'elder_force_index': efi_value,
+            
+            # Rate of Change
+            'rate_of_change': roc_value,
+            
+            # Original indicators
             'stoch_rsi': stoch_rsi_value,
             'williams_r': williams_r_value,
             'cci': cci_value,
             'rsi': rsi,
             'macd': macd,
-            'macd_signal': 0,  # Simplified for now
             'volume_trend': volume_trend["Analysis"]
         }
         
@@ -459,24 +952,49 @@ def get_stock_recommendation(stock_symbol):
 
         return {
             "Stock": stock_symbol,
-            "Current Price": current_price,  # Updated to use the close price
-            "Last Close": last_close,  # Always use the correct last_close value
+            "Current Price": current_price,
+            "Last Close": last_close,
             "Previous Close": previous_close,
             "Today Open": today_open,
             "30-Day Moving Average": moving_avg_30,
+            "Recommendation": recommendation,
+            "Signal Confidence": f"{confidence:.1%}" if 'confidence' in locals() else "N/A",
+            
+            # Key Intraday Indicators (Most Important)
+            "VWAP": vwap_value if vwap_value is not None else float('nan'),
+            "Supertrend": supertrend_value if supertrend_value is not None else float('nan'),
+            "Supertrend Signal": "Bullish" if supertrend_dir == 1 else "Bearish" if supertrend_dir == -1 else "N/A",
+            "Money Flow Index": mfi_value if mfi_value is not None else float('nan'),
+            "Parabolic SAR": sar_value if sar_value is not None else float('nan'),
+            "SAR Signal": sar_signal if sar_signal else "No Signal",
+            
+            # Multiple RSI Timeframes
+            "RSI (5-period)": rsi_5_value if rsi_5_value is not None else float('nan'),
+            "RSI (9-period)": rsi_9_value if rsi_9_value is not None else float('nan'),
+            "RSI (14-period)": rsi_14_value if rsi_14_value is not None else float('nan'),
+            "RSI (21-period)": rsi_21_value if rsi_21_value is not None else float('nan'),
+            
+            # Advanced Momentum Indicators
+            "Ultimate Oscillator": uo_value if uo_value is not None else float('nan'),
+            "Awesome Oscillator": ao_value if ao_value is not None else float('nan'),
+            "Elder Force Index": efi_value if efi_value is not None else float('nan'),
+            "Rate of Change": roc_value if roc_value is not None else float('nan'),
+            "MACD Histogram": macd_histogram_value if macd_histogram_value is not None else float('nan'),
+            
+            # Volume Indicators
+            "On-Balance Volume": obv_value if obv_value is not None else float('nan'),
+            "Volume Analysis": volume_trend["Analysis"],
+            
+            # Traditional Indicators
             "RSI": rsi,
             "MACD": macd,
             "Upper Bollinger Band": upper_band,
             "Lower Bollinger Band": lower_band,
-            "Volume Analysis": volume_trend["Analysis"],
-            "Recommendation": recommendation,
-            # Enhanced Technical Indicators
             "Stochastic RSI": stoch_rsi_value if stoch_rsi_value is not None else float('nan'),
             "Williams %R": williams_r_value if williams_r_value is not None else float('nan'),
             "CCI": cci_value if cci_value is not None else float('nan'),
             "ATR": atr_value if atr_value is not None else float('nan'),
-            "Volatility Level": volatility_level,
-            "Signal Confidence": f"{confidence:.1%}" if 'confidence' in locals() else "N/A"
+            "Volatility Level": volatility_level
         }
 
     except Exception as e:
@@ -701,9 +1219,154 @@ def analyze_stocks_with_patterns(stock_file):
     else:
         print("\nNo stocks found with crossover patterns.")
 
+# NEW: Intraday Trading Summary Function
+def get_intraday_trading_summary(stock_file):
+    """Generate focused intraday trading recommendations with key signals"""
+    stocks = read_stock_symbols_from_json(stock_file)
+    
+    print(f"📊 Analyzing {len(stocks)} stocks with fresh data and rate limiting...")
+    print("⏱️  This may take a few minutes to fetch and analyze all stocks...")
+    
+    intraday_recommendations = []
+    for idx, (stock_name, stock_symbol) in enumerate(stocks.items(), 1):
+        try:
+            print(f"  Processing {idx}/{len(stocks)}: {stock_name} ({stock_symbol})")
+            recommendation_data = get_stock_recommendation(stock_symbol)
+            
+            # Only include stocks with strong signals for intraday trading
+            confidence_str = recommendation_data.get("Signal Confidence", "0%")
+            confidence_val = float(confidence_str.replace("%", "")) / 100 if confidence_str != "N/A" else 0
+            
+            if confidence_val >= 0.6:  # Only show high-confidence signals
+                intraday_data = {
+                    "Company": stock_name,
+                    "Symbol": stock_symbol,
+                    "Current Price": recommendation_data["Current Price"],
+                    "VWAP": recommendation_data["VWAP"],
+                    "Supertrend Signal": recommendation_data["Supertrend Signal"],
+                    "SAR Signal": recommendation_data["SAR Signal"],
+                    "Money Flow Index": recommendation_data["Money Flow Index"],
+                    "RSI (5)": recommendation_data["RSI (5-period)"],
+                    "RSI (9)": recommendation_data["RSI (9-period)"],
+                    "Recommendation": recommendation_data["Recommendation"],
+                    "Confidence": confidence_str
+                }
+                
+                # Add trading signals
+                signals = []
+                current_price = recommendation_data["Current Price"]
+                vwap = recommendation_data["VWAP"]
+                
+                if not pd.isna(vwap):
+                    if current_price > vwap:
+                        signals.append("Above VWAP ✓")
+                    else:
+                        signals.append("Below VWAP ✗")
+                
+                supertrend_signal = recommendation_data["Supertrend Signal"]
+                if supertrend_signal == "Bullish":
+                    signals.append("Supertrend: Bullish ✓")
+                elif supertrend_signal == "Bearish":
+                    signals.append("Supertrend: Bearish ✗")
+                
+                sar_signal = recommendation_data["SAR Signal"]
+                if "bullish" in sar_signal.lower():
+                    signals.append("SAR: Bullish Reversal ✓")
+                elif "bearish" in sar_signal.lower():
+                    signals.append("SAR: Bearish Reversal ✗")
+                
+                intraday_data["Key Signals"] = " | ".join(signals) if signals else "Mixed signals"
+                intraday_recommendations.append(intraday_data)
+                
+        except Exception as e:
+            logging.error(f"Error analyzing {stock_symbol}: {e}")
+            continue
+    
+    if intraday_recommendations:
+        print("\n" + "="*80)
+        print("🚀 INTRADAY TRADING OPPORTUNITIES (High Confidence Signals)")
+        print("="*80)
+        
+        for idx, stock in enumerate(intraday_recommendations, 1):
+            # Determine signal emoji based on recommendation
+            if any(word in stock["Recommendation"].upper() for word in ["BUY", "STRONG BUY"]):
+                emoji = "📈"
+                action_color = "GREEN"
+            elif any(word in stock["Recommendation"].upper() for word in ["SELL", "STRONG SELL"]):
+                emoji = "📉"
+                action_color = "RED"
+            else:
+                emoji = "⚖️"
+                action_color = "YELLOW"
+            
+            print(f"\n{emoji} #{idx}: {stock['Company']} ({stock['Symbol']})")
+            print("-" * 60)
+            print(f"Current Price: ₹{stock['Current Price']:.2f}")
+            if not pd.isna(stock['VWAP']):
+                vwap_status = "Above" if stock['Current Price'] > stock['VWAP'] else "Below"
+                print(f"VWAP: ₹{stock['VWAP']:.2f} ({vwap_status})")
+            
+            print(f"Recommendation: {stock['Recommendation']}")
+            print(f"Confidence: {stock['Confidence']}")
+            print(f"Key Signals: {stock['Key Signals']}")
+            
+            # Add quick stats
+            print("\n📊 Quick Stats:")
+            if not pd.isna(stock['Money Flow Index']):
+                mfi = stock['Money Flow Index']
+                mfi_status = "Overbought" if mfi > 80 else "Oversold" if mfi < 20 else "Normal"
+                print(f"Money Flow Index: {mfi:.1f} ({mfi_status})")
+            
+            if not pd.isna(stock['RSI (5)']):
+                rsi5 = stock['RSI (5)']
+                rsi5_status = "Overbought" if rsi5 > 75 else "Oversold" if rsi5 < 25 else "Normal"
+                print(f"RSI (5-period): {rsi5:.1f} ({rsi5_status})")
+            
+            print("-" * 60)
+        
+        print(f"\n📋 Total High-Confidence Opportunities: {len(intraday_recommendations)}")
+        print("="*80)
+    else:
+        print("\n⚠️  No high-confidence intraday trading opportunities found at this time.")
+        print("Consider waiting for better setups or checking lower timeframes.")
+
 if __name__ == "__main__":
     # Specify the JSON file that contains the stock symbols and company names
     stock_file = "stocks.json"
     
-    # Only run the pattern analysis
-    analyze_stocks_with_patterns(stock_file)
+    print("ENHANCED INTRADAY TRADING ANALYSIS")
+    print("=" * 50)
+    
+    print("⚠️  Note: Analysis fetches fresh data with automatic rate limiting.")
+    print("   This may take 5-10 minutes to complete all stocks.")
+    print("=" * 50)
+    
+    # Run the new intraday trading summary with error handling
+    try:
+        print("\n🚀 STARTING INTRADAY ANALYSIS...")
+        get_intraday_trading_summary(stock_file)
+    except KeyboardInterrupt:
+        print("\n❌ Analysis interrupted by user.")
+        print("   Run again to retry the analysis.")
+    except Exception as e:
+        print(f"❌ Error in intraday analysis: {e}")
+        print("   Try running again later.")
+    
+    # Run pattern analysis (usually faster)
+    try:
+        print("\n📊 STARTING PATTERN ANALYSIS...")
+        analyze_stocks_with_patterns(stock_file)
+    except KeyboardInterrupt:
+        print("\n❌ Pattern analysis interrupted by user.")
+    except Exception as e:
+        print(f"❌ Error in pattern analysis: {e}")
+        print("   Try running again later.")
+    
+    # Provide troubleshooting tips
+    print("\n💡 TIPS")
+    print("=" * 50)
+    print("✅ The script includes automatic rate limiting")
+    print("✅ Fresh data is fetched for each analysis")  
+    print("🔄 Run the script when you need updated analysis")
+    print("⏰ Wait 10-15 minutes between full runs to avoid rate limits")
+    print("=" * 50)
