@@ -1,0 +1,7 @@
+pandas
+numpy
+yfinance
+tabulate
+requests
+urllib3
+dnspython
