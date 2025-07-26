@@ -1,6 +1,5 @@
 {
   "AARTI INDUSTRIES": "AARTIIND.NS",
-  "Alembic Pharmaceuticals": "APLLTD.NS",
   "ASHOK LEYLAND": "ASHOKLEY.NS",
   "ASIAN PAINTS": "ASIANPAINT.NS",
   "Axis Bank": "AXISBANK.NS",
@@ -15,8 +14,6 @@
   "DRREDDY": "DRREDDY.NS",
   "Eicher Motors Limited": "EICHERMOT.NS",
   "FEDERAL BANK": "FEDERALBNK.NS",
-  "GMM Pfaudler": "GMMPFAUDLR.NS",
-  "GOLDBEES": "GOLDBEES.NS",
   "GREAVES COTTON": "GREAVESCOT.NS",
   "GUJGASLTD": "GUJGASLTD.NS",
   "HDFC Bank": "HDFCBANK.NS",
@@ -74,14 +71,10 @@
   "Tata Elxsi": "TATAELXSI.NS",
   "Tata Technologies": "TATATECH.NS",
   "Tech Mahindra": "TECHM.NS",
-  "Tejas Networks": "TEJASNET.NS",
-  "Trent": "TRENT.NS",
   "TITAN": "TITAN.NS",
   "TTK Prestige": "TTKPRESTIG.NS",
   "Tamilnad Merchanticle Bank": "TMB.NS",
   "Varun Beverages": "VBL.NS",
   "Wipro": "WIPRO.NS",
   "United Spirits": "UNITDSPR.NS",
-  "Zuari Industries": "ZUARIIND.NS"
 }
-
