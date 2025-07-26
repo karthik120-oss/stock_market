@@ -113,7 +113,6 @@ def fetch_stock_data_robust(symbol, period="60d", max_retries=3, delay_between_r
                 else:
                     wait_time = (2 ** attempt) + (attempt * 0.5)
                 
-                logging.info(f"Waiting {wait_time} seconds before retry...")
                 time.sleep(wait_time)
             else:
                 logging.error(f"All attempts failed for {symbol}")
@@ -128,7 +127,6 @@ def fetch_from_alternative_source(symbol):
     This can be implemented as a fallback when Yahoo Finance fails
     """
     # This is a placeholder - you can implement alternative APIs here
-    logging.info(f"Alternative data source not implemented for {symbol}")
     return pd.DataFrame()
 
 # Enhanced Technical Indicators
@@ -1152,7 +1150,6 @@ def get_intraday_trading_summary(stock_file):
     intraday_recommendations = []
     for idx, (stock_name, stock_symbol) in enumerate(stocks.items(), 1):
         try:
-            print(f"  Processing {idx}/{len(stocks)}: {stock_name} ({stock_symbol})")
             recommendation_data = get_stock_recommendation(stock_symbol)
             
             # Only include stocks with strong signals for intraday trading
