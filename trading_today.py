@@ -77,7 +77,7 @@ import time
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Enhanced data fetching with fallback options
-def fetch_stock_data_robust(symbol, period="60d", max_retries=3, delay_between_requests=0.5):
+def fetch_stock_data_robust(symbol, period="25d", max_retries=3, delay_between_requests=0.5):
     """
     Robust stock data fetching with rate limiting, retry strategies and fallback options
     """
@@ -576,16 +576,16 @@ def analyze_volume_trend(stock_data, use_today=True):
     # Use either latest data or previous day's data
     analysis_data = stock_data if use_today else stock_data[:-1]
     
-    # Get full 30 days of data for analysis
-    last_30_days_data = analysis_data[-30:].copy()  # Ensure we get exactly 30 days
+    # Get 20 days of data for analysis (optimized for intraday trading)
+    last_20_days_data = analysis_data[-20:].copy()  # More responsive for intraday
     
-    if len(last_30_days_data) < 30:
-        logging.warning(f"Less than 30 days of data available. Using {len(last_30_days_data)} days.")
+    if len(last_20_days_data) < 20:
+        logging.warning(f"Less than 20 days of data available. Using {len(last_20_days_data)} days.")
     
     # Calculate Chaikin Money Flow Multiplier
-    high_low = last_30_days_data['High'] - last_30_days_data['Low']
-    close_low = last_30_days_data['Close'] - last_30_days_data['Low']
-    high_close = last_30_days_data['High'] - last_30_days_data['Close']
+    high_low = last_20_days_data['High'] - last_20_days_data['Low']
+    close_low = last_20_days_data['Close'] - last_20_days_data['Low']
+    high_close = last_20_days_data['High'] - last_20_days_data['Close']
     
     # Avoid division by zero
     high_low = high_low.replace(0, 1e-5)
@@ -593,11 +593,11 @@ def analyze_volume_trend(stock_data, use_today=True):
     multiplier = ((2 * close_low) - high_close) / high_low
     
     # Calculate Money Flow Volume
-    money_flow_volume = multiplier * last_30_days_data['Volume']
+    money_flow_volume = multiplier * last_20_days_data['Volume']
     
-    # Calculate Chaikin Oscillator using full 30 days
+    # Calculate Chaikin Oscillator using 20 days (optimized for intraday)
     ema_short = money_flow_volume.ewm(span=5, adjust=False).mean()
-    ema_long = money_flow_volume.ewm(span=20, adjust=False).mean()
+    ema_long = money_flow_volume.ewm(span=15, adjust=False).mean()  # Reduced from 20 to 15
     chaikin_oscillator = ema_short - ema_long
     
     volume_trend = {
@@ -607,13 +607,13 @@ def analyze_volume_trend(stock_data, use_today=True):
         "Analysis": "N/A"
     }
 
-    if len(last_30_days_data) >= 2:
+    if len(last_20_days_data) >= 2:
         current_chaikin = chaikin_oscillator.iloc[-1].item()
         prev_chaikin = chaikin_oscillator.iloc[-2].item()
         
-        # Determine price trend using full 30-day period
-        first_half_price = last_30_days_data['Close'].iloc[:15].mean().item()
-        second_half_price = last_30_days_data['Close'].iloc[15:].mean().item()
+        # Determine price trend using 20-day period (split into two 10-day periods)
+        first_half_price = last_20_days_data['Close'].iloc[:10].mean().item()
+        second_half_price = last_20_days_data['Close'].iloc[10:].mean().item()
         volume_trend["Price Trend"] = "Increases" if second_half_price > first_half_price else "Decreases"
         
         # Determine Chaikin signal
@@ -663,7 +663,7 @@ def calculate_bollinger_bands(stock_data, window=20, num_std_dev=2):
     stock_data['Lower Band'] = stock_data['20_MA'] - (stock_data['20_STD'] * num_std_dev)
     return stock_data
 
-# Function to get 30-day moving average, RSI, MACD, Bollinger Bands, and current price, then make buy/sell recommendation
+# Function to get 20-day moving average, RSI, MACD, Bollinger Bands, and current price, then make buy/sell recommendation
 def get_stock_recommendation(stock_symbol):
     try:
         # Initialize recommendation to None
@@ -685,7 +685,7 @@ def get_stock_recommendation(stock_symbol):
                 "Last Close": float('nan'),
                 "Previous Close": float('nan'),
                 "Today Open": float('nan'),
-                "30-Day Moving Average": float('nan'),
+                "20-Day Moving Average": float('nan'),
                 "RSI": float('nan'),
                 "MACD": float('nan'),
                 "Upper Bollinger Band": float('nan'),
@@ -716,7 +716,7 @@ def get_stock_recommendation(stock_symbol):
                     "Last Close": float('nan'),
                     "Previous Close": float('nan'),
                     "Today Open": float('nan'),
-                    "30-Day Moving Average": float('nan'),
+                    "20-Day Moving Average": float('nan'),
                     "RSI": float('nan'),
                     "MACD": float('nan'),
                     "Upper Bollinger Band": float('nan'),
@@ -755,15 +755,15 @@ def get_stock_recommendation(stock_symbol):
 
         # Create a proper copy of the data to avoid SettingWithCopyWarning
         analysis_data = stock_data.copy() if use_today else stock_data[:-1].copy()
-        last_30_days_data = analysis_data[-30:].copy()
+        last_20_days_data = analysis_data[-20:].copy()
 
-        # Calculate RSI using exponential moving average
-        delta = last_30_days_data['Close'].diff()
+        # Calculate RSI using exponential moving average (optimized for intraday)
+        delta = last_20_days_data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).ewm(span=14, adjust=False).mean()  # Changed to EMA
         loss = (-delta.where(delta < 0, 0)).ewm(span=14, adjust=False).mean()  # Changed to EMA
         rs = gain / loss
-        last_30_days_data['RSI'] = 100 - (100 / (1 + rs))
-        rsi = last_30_days_data['RSI'].iloc[-1].item()
+        last_20_days_data['RSI'] = 100 - (100 / (1 + rs))
+        rsi = last_20_days_data['RSI'].iloc[-1].item()
 
         # Calculate MACD using EMAs (correct - already using EMA)
         exp1 = analysis_data['Close'].ewm(span=12, adjust=False).mean()
@@ -879,10 +879,10 @@ def get_stock_recommendation(stock_symbol):
         today_open = stock_data['Open'].iloc[-1].item() if use_today else None
 
         # Use all data including today for calculations
-        last_30_days_data = stock_data[-30:].copy()
+        last_20_days_data = stock_data[-20:].copy()
 
-        # Calculate 30-day exponential moving average (EMA)
-        moving_avg_30 = last_30_days_data['Close'].ewm(span=30, adjust=False).mean().iloc[-1].item()
+        # Calculate 20-day exponential moving average (EMA) - better for intraday
+        moving_avg_20 = last_20_days_data['Close'].ewm(span=20, adjust=False).mean().iloc[-1].item()
 
         # Calculate Bollinger Bands
         stock_data = calculate_bollinger_bands(stock_data)
@@ -972,9 +972,9 @@ def get_stock_recommendation(stock_symbol):
                     recommendation = f"WEAK SELL (Confidence: {confidence:.1%})"
             
             # Priority 3: Traditional logic with confidence context
-            elif last_close < moving_avg_30 and rsi < 30 and macd < 0:
+            elif last_close < moving_avg_20 and rsi < 30 and macd < 0:
                 recommendation = f"SELL (Traditional Signals - Confidence: {confidence:.1%})"
-            elif last_close > moving_avg_30 and rsi > 40 and rsi < 70 and macd > 0:
+            elif last_close > moving_avg_20 and rsi > 40 and rsi < 70 and macd > 0:
                 if volume_trend["Analysis"] == "Strong Bullish":
                     recommendation = f"STRONG BUY (Volume Confirmed - Confidence: {confidence:.1%})"
                 else:
@@ -993,7 +993,7 @@ def get_stock_recommendation(stock_symbol):
             "Last Close": last_close,
             "Previous Close": previous_close,
             "Today Open": today_open,
-            "30-Day Moving Average": moving_avg_30,
+            "20-Day Moving Average": moving_avg_20,
             "Recommendation": recommendation,
             "Signal Confidence": f"{confidence:.1%}" if 'confidence' in locals() else "N/A",
             
