@@ -71,6 +71,11 @@ import logging
 import numpy as np
 from typing import Dict, Tuple
 import time
+import sys
+import os
+import argparse
+import re
+import warnings
 
 
 # Configure logging
@@ -1227,13 +1232,13 @@ def get_intraday_trading_summary(stock_file):
         for idx, stock in enumerate(intraday_recommendations, 1):
             # Determine signal emoji based on recommendation
             if any(word in stock["Recommendation"].upper() for word in ["BUY", "STRONG BUY"]):
-                emoji = "📈"
+                emoji = "🟢"  # Green circle for BUY
                 action_color = "GREEN"
             elif any(word in stock["Recommendation"].upper() for word in ["SELL", "STRONG SELL"]):
-                emoji = "📉"
+                emoji = "🔴"  # Red circle for SELL
                 action_color = "RED"
             else:
-                emoji = "⚖️"
+                emoji = "⚖️"  # Scale for neutral/hold
                 action_color = "YELLOW"
             
             print(f"\n{emoji} #{idx}: {stock['Company']} ({stock['Symbol']})")
@@ -1292,41 +1297,306 @@ def get_intraday_trading_summary(stock_file):
         print("\n⚠️  No high-confidence intraday trading opportunities found at this time.")
         print("Consider waiting for better setups or checking lower timeframes.")
 
-if __name__ == "__main__":
-    # Specify the JSON file that contains the stock symbols and company names
-    stock_file = "stocks.json"
+def parse_analysis_file_and_check_levels(file_path):
+    """
+    Parse a previous analysis file and check current stock prices against 
+    the stored pivot points and support/resistance levels based on recommendation
+    """
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
+        return
     
-    print("ENHANCED INTRADAY TRADING ANALYSIS")
-    print("=" * 50)
+    print(f"📄 Reading analysis from: {file_path}")
+    print("🎯 Will only check current prices for stocks found in this file")
+    print("=" * 80)
     
-    print("⚠️  Note: Analysis fetches fresh data with automatic rate limiting.")
-    print("   This may take 5-10 minutes to complete all stocks.")
-    print("=" * 50)
-    
-    # Run the new intraday trading summary with error handling
     try:
-        print("\n🚀 STARTING INTRADAY ANALYSIS...")
-        get_intraday_trading_summary(stock_file)
-    except KeyboardInterrupt:
-        print("\n❌ Analysis interrupted by user.")
-        print("   Run again to retry the analysis.")
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        # Parse each stock entry
+        stock_entries = re.split(r'📈|📉|⚖️', content)[1:]  # Split by emojis and remove first empty element
+        
+        results = []
+        
+        for entry in stock_entries:
+            if not entry.strip():
+                continue
+                
+            # Extract stock information using regex
+            stock_match = re.search(r'#\d+:\s*([^(]+)\(([^)]+)\)', entry)
+            if not stock_match:
+                continue
+                
+            company_name = stock_match.group(1).strip()
+            symbol = stock_match.group(2).strip()
+            
+            # Extract stored data
+            price_match = re.search(r'Current Price:\s*₹([\d,.]+)', entry)
+            recommendation_match = re.search(r'Recommendation:\s*([^\n\r]+)', entry)
+            pivot_match = re.search(r'Pivot Point:\s*₹([\d,.]+)', entry)
+            
+            # Extract resistance levels
+            r1_match = re.search(r'R1:\s*₹([\d,.]+)', entry)
+            r2_match = re.search(r'R2:\s*₹([\d,.]+)', entry)
+            r3_match = re.search(r'R3:\s*₹([\d,.]+)', entry)
+            
+            # Extract support levels
+            s1_match = re.search(r'S1:\s*₹([\d,.]+)', entry)
+            s2_match = re.search(r'S2:\s*₹([\d,.]+)', entry)
+            s3_match = re.search(r'S3:\s*₹([\d,.]+)', entry)
+            
+            if not all([price_match, recommendation_match, pivot_match]):
+                continue
+            
+            stored_price = float(price_match.group(1).replace(',', ''))
+            recommendation = recommendation_match.group(1).strip()
+            pivot = float(pivot_match.group(1).replace(',', ''))
+            
+            # Get resistance and support levels
+            r1 = float(r1_match.group(1).replace(',', '')) if r1_match else None
+            r2 = float(r2_match.group(1).replace(',', '')) if r2_match else None
+            r3 = float(r3_match.group(1).replace(',', '')) if r3_match else None
+            s1 = float(s1_match.group(1).replace(',', '')) if s1_match else None
+            s2 = float(s2_match.group(1).replace(',', '')) if s2_match else None
+            s3 = float(s3_match.group(1).replace(',', '')) if s3_match else None
+            
+            # Fetch current price
+            try:
+                print(f"🔄 Fetching current price for {symbol}...")
+                current_data = yf.download(symbol, period="1d", interval="1m", progress=False)
+                if not current_data.empty:
+                    current_price = current_data['Close'].iloc[-1].item()  # Ensure it's a scalar, not pandas object
+                else:
+                    print(f"⚠️  Could not fetch current data for {symbol}")
+                    continue
+                    
+                time.sleep(0.5)  # Rate limiting
+                
+            except Exception as e:
+                print(f"❌ Error fetching data for {symbol}: {e}")
+                continue
+            
+            # Determine recommendation type
+            is_buy_recommendation = any(word in recommendation.upper() for word in ['BUY', 'ACCUMULATE'])
+            is_sell_recommendation = any(word in recommendation.upper() for word in ['SELL'])
+            
+            # Analyze current position vs levels
+            analysis_result = {
+                'company': company_name,
+                'symbol': symbol,
+                'stored_price': stored_price,
+                'current_price': current_price,
+                'recommendation': recommendation,
+                'pivot': pivot,
+                'r1': r1, 'r2': r2, 'r3': r3,
+                's1': s1, 's2': s2, 's3': s3,
+                'is_buy_rec': is_buy_recommendation,
+                'is_sell_rec': is_sell_recommendation,
+                'price_change': ((current_price - stored_price) / stored_price) * 100
+            }
+            
+            results.append(analysis_result)
+        
+        if not results:
+            print("❌ No valid stock entries found in the file")
+            return
+        
+        # Store original count before filtering
+        total_stocks_found = len(results)
+        
+        # Filter results to show only stocks that have reached significant levels
+        filtered_results = []
+        
+        for stock in results:
+            show_stock = False
+            
+            if stock['is_buy_rec']:
+                # For BUY: Show if above pivot OR above R1
+                if (stock['current_price'] > stock['pivot'] or 
+                    (stock['r1'] and stock['current_price'] > stock['r1'])):
+                    show_stock = True
+                    
+            elif stock['is_sell_rec']:
+                # For SELL: Show if below pivot OR below S1
+                if (stock['current_price'] < stock['pivot'] or 
+                    (stock['s1'] and stock['current_price'] < stock['s1'])):
+                    show_stock = True
+            else:
+                # For neutral recommendations, always show
+                show_stock = True
+                
+            if show_stock:
+                filtered_results.append(stock)
+        
+        # Display results
+        showing_stocks = len(filtered_results)
+        
+        print(f"\n🔍 LEVEL CHECK ANALYSIS")
+        print(f"📊 Found {total_stocks_found} stocks in analysis file")
+        print(f"🎯 Showing {showing_stocks} stocks that have reached key levels")
+        
+        if showing_stocks == 0:
+            print("\n✨ No stocks have reached their key levels yet")
+            print("💡 For BUY recommendations: Waiting for price above Pivot or R1")
+            print("💡 For SELL recommendations: Waiting for price below Pivot or S1")
+            print("=" * 80)
+            return
+            
+        print("=" * 80)
+        
+        results = filtered_results  # Use filtered results for display
+        
+        for idx, stock in enumerate(results, 1):
+            print(f"\n📊 #{idx}: {stock['company']} ({stock['symbol']})")
+            print("-" * 60)
+            print(f"Stored Price: ₹{stock['stored_price']:.2f}")
+            print(f"Current Price: ₹{stock['current_price']:.2f}")
+            
+            # Price change indicator
+            change_symbol = "🔴" if stock['price_change'] < 0 else "🟢"
+            print(f"Price Change: {change_symbol} {stock['price_change']:+.2f}%")
+            print(f"Original Recommendation: {stock['recommendation']}")
+            
+            print(f"\n📍 Pivot Point: ₹{stock['pivot']:.2f}")
+            
+            # Check against levels based on recommendation type
+            if stock['is_buy_rec']:
+                print("\n🔺 BUY RECOMMENDATION - Checking resistance breakouts:")
+                
+                if stock['current_price'] > stock['pivot']:
+                    distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
+                    print(f"✅ Above Pivot (+{distance:.1f}%) - Bullish confirmed")
+                else:
+                    distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
+                    print(f"❌ Below Pivot (-{distance:.1f}%) - Caution advised")
+                
+                # Check resistance levels
+                for level_name, level_value in [('R1', stock['r1']), ('R2', stock['r2']), ('R3', stock['r3'])]:
+                    if level_value:
+                        if stock['current_price'] > level_value:
+                            distance = ((stock['current_price'] - level_value) / level_value) * 100
+                            print(f"🚀 Above {level_name} (₹{level_value:.2f}) +{distance:.1f}% - Strong breakout!")
+                        else:
+                            distance = ((level_value - stock['current_price']) / level_value) * 100
+                            print(f"⏳ Below {level_name} (₹{level_value:.2f}) -{distance:.1f}% - Target ahead")
+            
+            elif stock['is_sell_rec']:
+                print("\n🔻 SELL RECOMMENDATION - Checking support breakdowns:")
+                
+                if stock['current_price'] < stock['pivot']:
+                    distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
+                    print(f"✅ Below Pivot (-{distance:.1f}%) - Bearish confirmed")
+                else:
+                    distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
+                    print(f"❌ Above Pivot (+{distance:.1f}%) - Caution advised")
+                
+                # Check support levels
+                for level_name, level_value in [('S1', stock['s1']), ('S2', stock['s2']), ('S3', stock['s3'])]:
+                    if level_value:
+                        if stock['current_price'] < level_value:
+                            distance = ((level_value - stock['current_price']) / level_value) * 100
+                            print(f"📉 Below {level_name} (₹{level_value:.2f}) -{distance:.1f}% - Support broken!")
+                        else:
+                            distance = ((stock['current_price'] - level_value) / level_value) * 100
+                            print(f"🛡️ Above {level_name} (₹{level_value:.2f}) +{distance:.1f}% - Support holding")
+            
+            else:
+                print("\n⚖️ HOLD/NEUTRAL RECOMMENDATION - General level analysis:")
+                if stock['current_price'] > stock['pivot']:
+                    distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
+                    print(f"📈 Above Pivot (+{distance:.1f}%) - Bullish bias")
+                else:
+                    distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
+                    print(f"📉 Below Pivot (-{distance:.1f}%) - Bearish bias")
+            
+            print("-" * 60)
+        
+        # Summary (inside the try block where total_stocks_found is available)
+        buy_stocks = [s for s in results if s['is_buy_rec']]
+        sell_stocks = [s for s in results if s['is_sell_rec']]
+        
+        print(f"\n📋 SUMMARY (Stocks at Key Levels):")
+        print(f"🟢 BUY stocks above Pivot/R1: {len(buy_stocks)}")
+        print(f"🔴 SELL stocks below Pivot/S1: {len(sell_stocks)}")
+        print(f"⚖️ Other recommendations: {len(results) - len(buy_stocks) - len(sell_stocks)}")
+        print(f"\n💡 Total stocks checked: {total_stocks_found} | Showing actionable: {len(results)}")
+        print("=" * 80)
+        
     except Exception as e:
-        print(f"❌ Error in intraday analysis: {e}")
-        print("   Try running again later.")
-    
+        print(f"❌ Error parsing file: {e}")
 
+if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Enhanced Intraday Trading Analysis')
+    parser.add_argument('--check-levels', '-c', type=str, metavar='FILE_PATH',
+                       help='Check current prices against support/resistance levels from a previous analysis file. Only fetches current prices for stocks that are present in the input file.')
     
-    # Provide troubleshooting tips
-    print("\n💡 TIPS & TRADING GUIDE")
-    print("=" * 50)
-    print("✅ The script includes automatic rate limiting")
-    print("✅ Fresh data is fetched for each analysis")  
-    print("🔄 Run the script when you need updated analysis")
-    print("⏰ Wait 10-15 minutes between full runs to avoid rate limits")
-    print("\n📊 SUPPORT & RESISTANCE LEVELS GUIDE:")
-    print("🔺 Resistance (R1, R2, R3): Price levels where selling pressure may increase")
-    print("🔻 Support (S1, S2, S3): Price levels where buying interest may emerge")
-    print("📍 Pivot Point: Key reference level - above = bullish bias, below = bearish bias")
-    print("💡 Use these levels for entry/exit points and stop-loss placement")
-    print("⚠️  Higher numbered levels (R3/S3) are stronger but less frequently tested")
-    print("=" * 50)
+    args = parser.parse_args()
+    
+    # If check-levels option is provided, run the level checking function
+    if args.check_levels:
+        print("🔍 CHECKING CURRENT PRICES AGAINST PREVIOUS ANALYSIS")
+        print("=" * 80)
+        parse_analysis_file_and_check_levels(args.check_levels)
+        sys.exit(0)
+    
+    # Original functionality - generate new analysis
+    # Create filename with format day_month_year.txt (e.g., 30_july_2025.txt)
+    current_date = date.today()
+    filename = f"{current_date.day}_{current_date.strftime('%B_%Y').lower()}.txt"
+    
+    # Redirect stdout to file
+    original_stdout = sys.stdout
+    
+    try:
+        with open(filename, 'w', encoding='utf-8') as output_file:
+            sys.stdout = output_file
+            
+            # Specify the JSON file that contains the stock symbols and company names
+            stock_file = "stocks.json"
+            
+            print("ENHANCED INTRADAY TRADING ANALYSIS")
+            print("=" * 50)
+            
+            print("⚠️  Note: Analysis fetches fresh data with automatic rate limiting.")
+            print("   This may take 5-10 minutes to complete all stocks.")
+            print("=" * 50)
+            
+            # Run the new intraday trading summary with error handling
+            try:
+                print("\n🚀 STARTING INTRADAY ANALYSIS...")
+                get_intraday_trading_summary(stock_file)
+            except KeyboardInterrupt:
+                print("\n❌ Analysis interrupted by user.")
+                print("   Run again to retry the analysis.")
+            except Exception as e:
+                print(f"❌ Error in intraday analysis: {e}")
+                print("   Try running again later.")
+            
+
+            
+            # Provide troubleshooting tips
+            print("\n💡 TIPS & TRADING GUIDE")
+            print("=" * 50)
+            print("✅ The script includes automatic rate limiting")
+            print("✅ Fresh data is fetched for each analysis")  
+            print("🔄 Run the script when you need updated analysis")
+            print("⏰ Wait 10-15 minutes between full runs to avoid rate limits")
+            print("\n📊 SUPPORT & RESISTANCE LEVELS GUIDE:")
+            print("🔺 Resistance (R1, R2, R3): Price levels where selling pressure may increase")
+            print("🔻 Support (S1, S2, S3): Price levels where buying interest may emerge")
+            print("📍 Pivot Point: Key reference level - above = bullish bias, below = bearish bias")
+            print("💡 Use these levels for entry/exit points and stop-loss placement")
+            print("⚠️  Higher numbered levels (R3/S3) are stronger but less frequently tested")
+            print("\n🆕 NEW FEATURE:")
+            print("💡 Use --check-levels to analyze current prices against previous analysis:")
+            print("   python trading_today.py --check-levels path/to/previous_analysis.txt")
+            print("=" * 50)
+            
+    finally:
+        # Restore original stdout
+        sys.stdout = original_stdout
+        print(f"Analysis complete! Output saved to: {filename}")
+        print("\n💡 TIP: To check current prices against these levels later, use:")
+        print(f"   python trading_today.py --check-levels {filename}")
