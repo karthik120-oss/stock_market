@@ -1550,6 +1550,12 @@ def parse_analysis_file_and_check_levels(file_path):
                         status = f"Below Pivot (-{distance:.1f}%)"
                         next_levels = "Monitoring..."
                 
+                # Filter: Skip contradictory signals
+                if stock['is_buy_rec'] and stock['price_change'] < 0:
+                    continue  # Skip BUY stocks declining (contradictory signal)
+                if stock['is_sell_rec'] and stock['price_change'] > 0:
+                    continue  # Skip SELL stocks rising (contradictory signal)
+                
                 # Add row to table data
                 table_data.append([symbol_company, stored_price, current_price, price_change, recommendation, pivot, status, next_levels])
             
