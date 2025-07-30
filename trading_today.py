@@ -1363,7 +1363,6 @@ def parse_analysis_file_and_check_levels(file_path):
             
             # Fetch current price
             try:
-                print(f"🔄 Fetching current price for {symbol}...")
                 current_data = yf.download(symbol, period="1d", interval="1m", progress=False)
                 if not current_data.empty:
                     current_price = current_data['Close'].iloc[-1].item()  # Ensure it's a scalar, not pandas object
@@ -1432,7 +1431,13 @@ def parse_analysis_file_and_check_levels(file_path):
         # Display results
         showing_stocks = len(filtered_results)
         
-        print(f"\n🔍 LEVEL CHECK ANALYSIS")
+        # Get current date and time
+        from datetime import datetime
+        current_time = datetime.now()
+        formatted_time = current_time.strftime("%d_%B_%Y_%H:%M:%S")
+        display_time = current_time.strftime("%d %B %Y at %H:%M:%S")
+        
+        print(f"\n🔍 LEVEL CHECK ANALYSIS - {display_time}")
         print(f"📊 Found {total_stocks_found} stocks in analysis file")
         print(f"🎯 Showing {showing_stocks} stocks that have reached key levels")
         
@@ -1443,74 +1448,76 @@ def parse_analysis_file_and_check_levels(file_path):
             print("=" * 80)
             return
             
-        print("=" * 80)
+        print("\n")
         
         results = filtered_results  # Use filtered results for display
         
-        for idx, stock in enumerate(results, 1):
-            print(f"\n📊 #{idx}: {stock['company']} ({stock['symbol']})")
-            print("-" * 60)
-            print(f"Stored Price: ₹{stock['stored_price']:.2f}")
-            print(f"Current Price: ₹{stock['current_price']:.2f}")
+        # Prepare data for tabulate
+        table_data = []
+        headers = ["Stock", "Stored", "Current", "Change%", "Recommendation", "Pivot", "Status"]
+        
+        for stock in results:
+            # Basic info
+            symbol = stock['symbol']
+            company = stock['company']
             
-            # Price change indicator
-            change_symbol = "🔴" if stock['price_change'] < 0 else "🟢"
-            print(f"Price Change: {change_symbol} {stock['price_change']:+.2f}%")
-            print(f"Original Recommendation: {stock['recommendation']}")
+            # Create stock name with proper truncation
+            if len(company) > 20:
+                symbol_company = f"{symbol} ({company[:20]}...)"
+            else:
+                symbol_company = f"{symbol} ({company})"
             
-            print(f"\n📍 Pivot Point: ₹{stock['pivot']:.2f}")
+            stored_price = f"₹{stock['stored_price']:.2f}"
+            current_price = f"₹{stock['current_price']:.2f}"
+            price_change = f"{stock['price_change']:+.1f}%"
+            recommendation = stock['recommendation']
+            pivot = f"₹{stock['pivot']:.2f}"
             
-            # Check against levels based on recommendation type
+            # Status based on recommendation type
             if stock['is_buy_rec']:
-                print("\n🔺 BUY RECOMMENDATION - Checking resistance breakouts:")
-                
                 if stock['current_price'] > stock['pivot']:
                     distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
-                    print(f"✅ Above Pivot (+{distance:.1f}%) - Bullish confirmed")
+                    status = f"Above Pivot (+{distance:.1f}%)"
                 else:
                     distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
-                    print(f"❌ Below Pivot (-{distance:.1f}%) - Caution advised")
-                
-                # Check resistance levels
+                    status = f"Below Pivot (-{distance:.1f}%)"
+                    
+                # Check if above any resistance level
                 for level_name, level_value in [('R1', stock['r1']), ('R2', stock['r2']), ('R3', stock['r3'])]:
-                    if level_value:
-                        if stock['current_price'] > level_value:
-                            distance = ((stock['current_price'] - level_value) / level_value) * 100
-                            print(f"🚀 Above {level_name} (₹{level_value:.2f}) +{distance:.1f}% - Strong breakout!")
-                        else:
-                            distance = ((level_value - stock['current_price']) / level_value) * 100
-                            print(f"⏳ Below {level_name} (₹{level_value:.2f}) -{distance:.1f}% - Target ahead")
-            
+                    if level_value and stock['current_price'] > level_value:
+                        distance = ((stock['current_price'] - level_value) / level_value) * 100
+                        status = f"Above {level_name} (+{distance:.1f}%)"
+                        break
+                        
             elif stock['is_sell_rec']:
-                print("\n🔻 SELL RECOMMENDATION - Checking support breakdowns:")
-                
                 if stock['current_price'] < stock['pivot']:
                     distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
-                    print(f"✅ Below Pivot (-{distance:.1f}%) - Bearish confirmed")
+                    status = f"Below Pivot (-{distance:.1f}%)"
                 else:
                     distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
-                    print(f"❌ Above Pivot (+{distance:.1f}%) - Caution advised")
-                
-                # Check support levels
+                    status = f"Above Pivot (+{distance:.1f}%)"
+                    
+                # Check if below any support level
                 for level_name, level_value in [('S1', stock['s1']), ('S2', stock['s2']), ('S3', stock['s3'])]:
-                    if level_value:
-                        if stock['current_price'] < level_value:
-                            distance = ((level_value - stock['current_price']) / level_value) * 100
-                            print(f"📉 Below {level_name} (₹{level_value:.2f}) -{distance:.1f}% - Support broken!")
-                        else:
-                            distance = ((stock['current_price'] - level_value) / level_value) * 100
-                            print(f"🛡️ Above {level_name} (₹{level_value:.2f}) +{distance:.1f}% - Support holding")
-            
+                    if level_value and stock['current_price'] < level_value:
+                        distance = ((level_value - stock['current_price']) / level_value) * 100
+                        status = f"Below {level_name} (-{distance:.1f}%)"
+                        break
+                        
             else:
-                print("\n⚖️ HOLD/NEUTRAL RECOMMENDATION - General level analysis:")
                 if stock['current_price'] > stock['pivot']:
                     distance = ((stock['current_price'] - stock['pivot']) / stock['pivot']) * 100
-                    print(f"📈 Above Pivot (+{distance:.1f}%) - Bullish bias")
+                    status = f"Above Pivot (+{distance:.1f}%)"
                 else:
                     distance = ((stock['pivot'] - stock['current_price']) / stock['pivot']) * 100
-                    print(f"📉 Below Pivot (-{distance:.1f}%) - Bearish bias")
+                    status = f"Below Pivot (-{distance:.1f}%)"
             
-            print("-" * 60)
+            # Add row to table data
+            table_data.append([symbol_company, stored_price, current_price, price_change, recommendation, pivot, status])
+        
+        # Print table using tabulate
+        from tabulate import tabulate
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
         
         # Summary (inside the try block where total_stocks_found is available)
         buy_stocks = [s for s in results if s['is_buy_rec']]
