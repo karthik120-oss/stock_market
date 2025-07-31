@@ -985,7 +985,7 @@ def get_stock_recommendation(stock_symbol):
                     else:
                         recommendation = f"BUY (Above MA - Confidence: {confidence:.1%})"
                 elif five_day_uptrend and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
-                    recommendation = f"ACCUMULATE (Uptrend - Confidence: {confidence:.1%})"
+                    recommendation = f"BUY (Uptrend - Confidence: {confidence:.1%})"
                 else:
                     recommendation = f"HOLD (Mixed Signals - Confidence: {confidence:.1%})"
 
@@ -1651,3 +1651,4 @@ if __name__ == "__main__":
             print(f"Analysis complete! Output saved to: {filename}")
             print("\n💡 TIP: To check current prices against these levels later, use:")
             print(f"   python trading_today.py --check-levels {filename}")
+
