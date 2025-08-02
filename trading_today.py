@@ -328,7 +328,8 @@ def calculate_ultimate_oscillator(high: pd.Series, low: pd.Series, close: pd.Ser
 
 def calculate_support_resistance_levels(stock_data):
         """
-        Calculate support and resistance levels using pivot points methodology
+        Calculate support and resistance levels using Woodie's pivot points methodology
+        Woodie's method gives more weight to closing price for better momentum-based trading
         Returns dictionary with pivot, resistance, and support levels
         """
         try:
@@ -338,8 +339,8 @@ def calculate_support_resistance_levels(stock_data):
             low = previous_row['Low']
             close = previous_row['Close']
             
-            # Calculate pivot point
-            pivot = (high + low + close) / 3
+            # Calculate Woodie's pivot point (gives double weight to closing price)
+            pivot = (high + low + 2 * close) / 4
             
             # Calculate resistance levels
             r1 = 2 * pivot - low
@@ -985,7 +986,7 @@ def get_stock_recommendation(stock_symbol):
                     else:
                         recommendation = f"BUY (Above MA - Confidence: {confidence:.1%})"
                 elif five_day_uptrend and volume_trend["Analysis"] in ["Strong Bullish", "Weak Bullish"]:
-                    recommendation = f"BUY (Uptrend - Confidence: {confidence:.1%})"
+                    recommendation = f"ACCUMULATE (Uptrend - Confidence: {confidence:.1%})"
                 else:
                     recommendation = f"HOLD (Mixed Signals - Confidence: {confidence:.1%})"
 
@@ -1651,4 +1652,3 @@ if __name__ == "__main__":
             print(f"Analysis complete! Output saved to: {filename}")
             print("\n💡 TIP: To check current prices against these levels later, use:")
             print(f"   python trading_today.py --check-levels {filename}")
-
