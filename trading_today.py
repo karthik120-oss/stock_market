@@ -1455,6 +1455,7 @@ def parse_analysis_file_and_check_levels(file_path):
             
             # Prepare data for tabulate
             table_data = []
+            displayed_stocks = []  # Track stocks actually displayed
             headers = ["Stock", "Stored", "Current", "Change%", "Recommendation", "Pivot", "Status", "Next Levels"]
             
             for stock in results:
@@ -1559,20 +1560,21 @@ def parse_analysis_file_and_check_levels(file_path):
                 
                 # Add row to table data
                 table_data.append([symbol_company, stored_price, current_price, price_change, recommendation, pivot, status, next_levels])
+                displayed_stocks.append(stock)  # Track this stock as displayed
             
             # Print table using tabulate
             from tabulate import tabulate
             print(tabulate(table_data, headers=headers, tablefmt="grid"))
             
-            # Summary (inside the try block where total_stocks_found is available)
-            buy_stocks = [s for s in results if s['is_buy_rec']]
-            sell_stocks = [s for s in results if s['is_sell_rec']]
+            # Summary (calculate from actually displayed stocks)
+            buy_stocks = [s for s in displayed_stocks if s['is_buy_rec']]
+            sell_stocks = [s for s in displayed_stocks if s['is_sell_rec']]
             
             print(f"\n📋 SUMMARY (Stocks at Key Levels):")
             print(f"🟢 BUY stocks above Pivot/R1: {len(buy_stocks)}")
             print(f"🔴 SELL stocks below Pivot/S1: {len(sell_stocks)}")
-            print(f"⚖️ Other recommendations: {len(results) - len(buy_stocks) - len(sell_stocks)}")
-            print(f"\n💡 Total stocks checked: {total_stocks_found} | Showing actionable: {len(results)}")
+            print(f"⚖️ Other recommendations: {len(displayed_stocks) - len(buy_stocks) - len(sell_stocks)}")
+            print(f"\n💡 Total stocks checked: {total_stocks_found} | Showing actionable: {len(displayed_stocks)}")
             print("=" * 80)
             
         except Exception as e:
